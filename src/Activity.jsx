@@ -2282,7 +2282,328 @@ function ProductUpdateActivity({ onComplete, scenario, difficulty }) {
     </div>
   );
 }
+function CloseDealtActivity({ onComplete, scenario, difficulty }) {
+  const timer = getTimer(20, difficulty);
+  const profile = getScenarioProfile(scenario?.id);
+  const DEALS = [
+    { company: "Mid-size retailer", budget: "$5k/year", objection: "We already have a solution", size: "small" },
+    { company: "Regional hospital chain", budget: "$40k/year", objection: "We need security compliance first", size: "large" },
+    { company: "Tech startup", budget: "$15k/year", objection: "Your pricing is too high", size: "medium" },
+    { company: "University system", budget: "$25k/year", objection: "We need board approval first", size: "medium" },
+    { company: "Fortune 500 company", budget: "$200k/year", objection: "We have 6 other vendors to evaluate", size: "enterprise" },
+  ];
+  const deal = useRef(DEALS[Math.floor(Math.random() * DEALS.length)]).current;
+  const RESPONSES = [
+    { text: "I understand. Let me show you our ROI data from similar companies.", good: true },
+    { text: "We can offer a 30-day pilot at no cost to prove the value.", good: true },
+    { text: "That's fine, we'll just go with your competitor then.", good: false },
+    { text: "Everyone says that — you'll love it once you try it.", good: false },
+    { text: "What would it take to move forward today?", good: true },
+    { text: "Our other clients said the same thing before they switched.", good: true },
+  ];
+  const shuffled = useRef([...RESPONSES].sort(() => Math.random() - 0.5).slice(0, 4)).current;
+  const [chosen, setChosen] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const timeLeft = useCountdown(timer, () => submit(null, true), !submitted);
 
+  function submit(response, timedOut = false) {
+    if (submitted) return;
+    setSubmitted(true);
+    if (timedOut || !response) {
+      setResult({ good: false, lesson: "Silence kills deals. Always have a response to objections.", statChange: "-5% morale" });
+      setTimeout(() => onComplete({ morale: -5 }), 3500); return;
+    }
+    const revenue = deal.size === "enterprise" ? 8000 : deal.size === "large" ? 5000 : deal.size === "medium" ? 3000 : 1500;
+    setResult({ good: response.good, lesson: response.good ? `Deal closed with ${deal.company}! Great objection handling. Addressing concerns directly builds trust and closes deals.` : `Lost the deal. "${response.text}" reads as dismissive. Objection handling requires empathy first, solution second.`, statChange: response.good ? `+$${revenue.toLocaleString()}` : "-5% morale" });
+    sounds[response.good ? "cash" : "fail"]();
+    setTimeout(() => onComplete(response.good ? { money: revenue } : { morale: -5 }), 3500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "#888" }}>🤝 Close Deal (CEO)</p>
+        <TimerRing seconds={timeLeft} total={timer} color="#60a5fa" />
+      </div>
+      <div style={{ background: "#1a1a1a", borderRadius: 10, padding: "12px", marginBottom: 12 }}>
+        <p style={{ fontSize: 10, color: "#60a5fa", marginBottom: 4 }}>Prospect: {deal.company}</p>
+        <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Budget: {deal.budget}</p>
+        <p style={{ fontSize: 11, color: "#ff8888" }}>Objection: "{deal.objection}"</p>
+      </div>
+      <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>How do you respond?</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {shuffled.map((r, i) => (
+          <button key={i} onClick={() => { setChosen(i); submit(r); }} disabled={submitted}
+            style={{ padding: "9px 12px", background: chosen === i ? "#222" : "#111", border: "0.5px solid #2a2a2a", borderRadius: 8, color: "#ccc", fontSize: 12, cursor: "pointer", textAlign: "left" }}>
+            "{r.text}"
+          </button>
+        ))}
+      </div>
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+    </div>
+  );
+}
+
+function CostCuttingActivity({ onComplete, difficulty }) {
+  const timer = getTimer(15, difficulty);
+  const CUTS = [
+    { label: "Cancel unused SaaS subscriptions", savings: 800, risk: "Low — nobody will notice", good: true },
+    { label: "Cut the office coffee budget", savings: 200, risk: "Medium — team morale impact", good: false },
+    { label: "Renegotiate AWS contract", savings: 3000, risk: "Low — just takes a call", good: true },
+    { label: "Freeze all hiring for 60 days", savings: 5000, risk: "Low short term, hurts growth later", good: true },
+    { label: "Cut team salaries by 15%", savings: 8000, risk: "High — people will quit", good: false },
+    { label: "Move to cheaper office space", savings: 2000, risk: "Medium — disruption cost", good: true },
+  ];
+  const shuffled = useRef([...CUTS].sort(() => Math.random() - 0.5).slice(0, 4)).current;
+  const [chosen, setChosen] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const timeLeft = useCountdown(timer, () => submit(null, true), !submitted);
+
+  function submit(cut, timedOut = false) {
+    if (submitted) return;
+    setSubmitted(true);
+    if (timedOut || !cut) {
+      setResult({ good: false, lesson: "Failing to cut costs when needed burns runway. Every dollar saved is a dollar of runway extended.", statChange: "-5% morale" });
+      setTimeout(() => onComplete({ morale: -5 }), 3500); return;
+    }
+    setResult({ good: cut.good, lesson: cut.good ? `Smart cut. Saved $${cut.savings.toLocaleString()}/mo. ${cut.risk}. Ruthless cost discipline is what separates startups that survive from ones that don't.` : `Wrong cut. ${cut.risk}. Cutting costs that destroy morale or team capability costs more than you save.`, statChange: cut.good ? `+$${cut.savings.toLocaleString()}` : "-10% morale" });
+    sounds[cut.good ? "cash" : "fail"]();
+    setTimeout(() => onComplete(cut.good ? { money: cut.savings } : { morale: -10 }), 3500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "#888" }}>✂️ Cost Cutting (CFO)</p>
+        <TimerRing seconds={timeLeft} total={timer} color="#4ade80" />
+      </div>
+      <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>Pick the best cost to cut right now. Not all cuts are equal.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {shuffled.map((cut, i) => (
+          <button key={i} onClick={() => { setChosen(i); submit(cut); }} disabled={submitted}
+            style={{ padding: "10px 12px", background: chosen === i ? "#222" : "#111", border: `0.5px solid ${chosen === i ? "#444" : "#222"}`, borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+            <p style={{ fontSize: 12, color: chosen === i ? "#fff" : "#aaa", marginBottom: 3 }}>{cut.label}</p>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <p style={{ fontSize: 10, color: "#555" }}>{cut.risk}</p>
+              <p style={{ fontSize: 10, color: "#4ade80" }}>-${cut.savings.toLocaleString()}/mo</p>
+            </div>
+          </button>
+        ))}
+      </div>
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+    </div>
+  );
+}
+
+function PaidCampaignActivity({ onComplete, scenario, difficulty }) {
+  const timer = getTimer(20, difficulty);
+  const profile = getScenarioProfile(scenario?.id);
+  const CHANNELS = [
+    { label: "Google Search Ads", cost: 2000, fit: ["enterprise","medical","fintech"], lesson: "Search ads work when people are actively searching for your solution." },
+    { label: "TikTok Ads", cost: 1000, fit: ["chaos","consumer"], lesson: "TikTok works for viral consumer products but kills enterprise credibility." },
+    { label: "LinkedIn Ads", cost: 3000, fit: ["enterprise","impact"], lesson: "LinkedIn is expensive but reaches decision makers in B2B." },
+    { label: "Reddit Ads", cost: 800, fit: ["chaos","general"], lesson: "Reddit users hate ads but love authentic community engagement." },
+    { label: "Newsletter Sponsorship", cost: 1500, fit: ["general","enterprise"], lesson: "Newsletter sponsorships have high intent audiences and trust transfer." },
+    { label: "Influencer Partnership", cost: 2500, fit: ["consumer","chaos","luxury"], lesson: "Influencers work for consumer products with strong visual appeal." },
+  ];
+  const [chosen, setChosen] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const timeLeft = useCountdown(timer, () => submit(null, true), !submitted);
+
+  function submit(channel, timedOut = false) {
+    if (submitted) return;
+    setSubmitted(true);
+    if (timedOut || !channel) {
+      setResult({ good: false, lesson: "No channel selected means wasted budget. Always match channel to audience.", statChange: "-5% morale" });
+      setTimeout(() => onComplete({ morale: -5 }), 3500); return;
+    }
+    const isGoodFit = channel.fit.includes(profile.type) || channel.fit.includes("general");
+    const users = isGoodFit ? Math.floor(300 + Math.random() * 400) : Math.floor(50 + Math.random() * 100);
+    setResult({ good: isGoodFit, lesson: channel.lesson, statChange: isGoodFit ? `+${users} users · -$${channel.cost.toLocaleString()}` : `-$${channel.cost.toLocaleString()} · +${users} users (poor fit)` });
+    sounds[isGoodFit ? "success" : "fail"]();
+    setTimeout(() => onComplete(isGoodFit ? { users, money: -channel.cost } : { users: Math.floor(users * 0.3), money: -channel.cost }), 3500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "#888" }}>💸 Paid Campaign (CMO)</p>
+        <TimerRing seconds={timeLeft} total={timer} color="#facc15" />
+      </div>
+      <div style={{ background: "#1a1500", border: "0.5px solid #facc1530", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
+        <p style={{ fontSize: 10, color: "#facc15" }}>Your scenario: {profile.name} · Type: {profile.type}</p>
+      </div>
+      <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Pick the best paid channel for your product type.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {CHANNELS.map((c, i) => (
+          <button key={i} onClick={() => { setChosen(i); submit(c); }} disabled={submitted}
+            style={{ padding: "9px 12px", background: chosen === i ? "#222" : "#111", border: `0.5px solid ${chosen === i ? "#facc15" : "#222"}`, borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <p style={{ fontSize: 12, color: chosen === i ? "#fff" : "#aaa" }}>{c.label}</p>
+              <p style={{ fontSize: 10, color: "#ff4444" }}>-${c.cost.toLocaleString()}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+    </div>
+  );
+}
+
+function FreelanceGigActivity({ onComplete, difficulty }) {
+  const timer = getTimer(15, difficulty);
+  const GIGS = [
+    { client: "E-commerce startup", task: "Build a checkout flow", pay: 4000, time: "3 days", risk: "Low", good: true },
+    { client: "Fortune 500", task: "6-month enterprise contract", pay: 25000, time: "6 months", risk: "High — distracts from your startup", good: false },
+    { client: "Non-profit", task: "Website redesign pro bono", pay: 0, time: "2 weeks", risk: "Zero revenue", good: false },
+    { client: "Local business", task: "Fix a specific bug", pay: 800, time: "4 hours", risk: "Very low", good: true },
+    { client: "Another startup", task: "Technical consulting call", pay: 500, time: "1 hour", risk: "None", good: true },
+  ];
+  const [chosen, setChosen] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const timeLeft = useCountdown(timer, () => submit(null, true), !submitted);
+
+  function submit(gig, timedOut = false) {
+    if (submitted) return;
+    setSubmitted(true);
+    if (timedOut || !gig) {
+      setResult({ good: false, lesson: "No gig = no freelance revenue. Any revenue is better than none when you're bootstrapping.", statChange: "-5% morale" });
+      setTimeout(() => onComplete({ morale: -5 }), 3500); return;
+    }
+    setResult({ good: gig.good, lesson: gig.good ? `Smart gig. $${gig.pay.toLocaleString()} for ${gig.time} work. Freelancing is a great way to extend runway without giving up equity.` : `Poor choice. ${gig.risk}. Take gigs that pay well relative to time and don't distract from your core product.`, statChange: gig.good ? `+$${gig.pay.toLocaleString()}` : gig.pay === 0 ? "-10% morale (no revenue)" : "-10% morale (too distracting)" });
+    sounds[gig.good ? "cash" : "fail"]();
+    setTimeout(() => onComplete(gig.good ? { money: gig.pay } : { morale: -10 }), 3500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "#888" }}>💻 Freelance Gig (CTO)</p>
+        <TimerRing seconds={timeLeft} total={timer} color="#f472b6" />
+      </div>
+      <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>Pick the right freelance gig. Time is your scarcest resource.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {GIGS.map((g, i) => (
+          <button key={i} onClick={() => { setChosen(i); submit(g); }} disabled={submitted}
+            style={{ padding: "10px 12px", background: chosen === i ? "#222" : "#111", border: `0.5px solid ${chosen === i ? "#444" : "#222"}`, borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <p style={{ fontSize: 12, color: chosen === i ? "#fff" : "#aaa" }}>{g.client}</p>
+              <p style={{ fontSize: 11, color: g.pay > 0 ? "#4ade80" : "#ff4444", fontFamily: "monospace" }}>${g.pay.toLocaleString()}</p>
+            </div>
+            <p style={{ fontSize: 10, color: "#555" }}>{g.task} · {g.time}</p>
+          </button>
+        ))}
+      </div>
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+    </div>
+  );
+}
+
+function OptimizeRevenueActivity({ onComplete, difficulty }) {
+  const timer = getTimer(20, difficulty);
+  const OPTIMIZATIONS = [
+    { label: "Reduce payment processing fees by switching to Stripe", impact: "+$800/mo margin", good: true, lesson: "Payment processing fees compound at scale. Optimizing them is pure margin improvement." },
+    { label: "Upsell current users to annual plans at 20% discount", impact: "+$5,000 upfront cash", good: true, lesson: "Annual plans improve cash flow and reduce churn. The 20% discount pays for itself in retention." },
+    { label: "Add a free tier to attract more users", impact: "-$2,000/mo support cost", good: false, lesson: "Free tiers work but dramatically increase support burden. Only do this if you have the infrastructure." },
+    { label: "Auto-charge expired credit cards without notification", impact: "+short term, legal risk", good: false, lesson: "Charging without consent is illegal and destroys trust. Never cut corners on billing ethics." },
+    { label: "Offer referral bonuses to existing customers", impact: "+users, -$500 cost", good: true, lesson: "Referral programs have the highest ROI of any acquisition channel — you only pay for results." },
+  ];
+  const [chosen, setChosen] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const timeLeft = useCountdown(timer, () => submit(null, true), !submitted);
+
+  function submit(opt, timedOut = false) {
+    if (submitted) return;
+    setSubmitted(true);
+    if (timedOut || !opt) {
+      setResult({ good: false, lesson: "Revenue optimization requires action. Waiting costs you money every month.", statChange: "-5% morale" });
+      setTimeout(() => onComplete({ morale: -5 }), 3500); return;
+    }
+    setResult({ good: opt.good, lesson: opt.lesson, statChange: opt.good ? "+$2,500 · +5% morale" : "-10% morale · legal risk" });
+    sounds[opt.good ? "cash" : "fail"]();
+    setTimeout(() => onComplete(opt.good ? { money: 2500, morale: 5 } : { morale: -10 }), 3500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "#888" }}>⚙️ Optimize Revenue (COO)</p>
+        <TimerRing seconds={timeLeft} total={timer} color="#a78bfa" />
+      </div>
+      <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>Pick the best revenue optimization right now.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {OPTIMIZATIONS.map((o, i) => (
+          <button key={i} onClick={() => { setChosen(i); submit(o); }} disabled={submitted}
+            style={{ padding: "10px 12px", background: chosen === i ? "#222" : "#111", border: `0.5px solid ${chosen === i ? "#444" : "#222"}`, borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+            <p style={{ fontSize: 12, color: chosen === i ? "#fff" : "#aaa", marginBottom: 3 }}>{o.label}</p>
+            <p style={{ fontSize: 10, color: "#555" }}>{o.impact}</p>
+          </button>
+        ))}
+      </div>
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+    </div>
+  );
+}
+
+function SponsorshipDealActivity({ onComplete, scenario, difficulty }) {
+  const timer = getTimer(20, difficulty);
+  const profile = getScenarioProfile(scenario?.id);
+  const SPONSORS = [
+    { name: "Tech newsletter (50k subscribers)", fit: "enterprise,general", pay: 2000, users: 200, lesson: "Newsletter sponsorships reach high-intent audiences already interested in your space." },
+    { name: "Gaming YouTube channel (2M subs)", fit: "chaos,consumer", pay: 3000, users: 500, lesson: "Gaming audiences are young and engaged — great for consumer apps with fun branding." },
+    { name: "Finance podcast (100k listeners)", fit: "fintech,enterprise", pay: 4000, users: 300, lesson: "Finance audiences have purchasing power and trust established podcast sponsors." },
+    { name: "Wellness Instagram influencer", fit: "wellness,consumer,luxury", pay: 2500, users: 400, lesson: "Wellness influencers have highly engaged followings that trust product recommendations." },
+    { name: "Startup community Slack group", fit: "general,enterprise", pay: 500, users: 150, lesson: "Startup communities are small but have high conversion rates — founders buy tools." },
+  ];
+  const [chosen, setChosen] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const timeLeft = useCountdown(timer, () => submit(null, true), !submitted);
+
+  function submit(sponsor, timedOut = false) {
+    if (submitted) return;
+    setSubmitted(true);
+    if (timedOut || !sponsor) {
+      setResult({ good: false, lesson: "No sponsorship = no community revenue. Pick the right channel for your audience.", statChange: "-5% morale" });
+      setTimeout(() => onComplete({ morale: -5 }), 3500); return;
+    }
+    const fits = sponsor.fit.split(",");
+    const isGoodFit = fits.includes(profile.type) || fits.includes("general");
+    setResult({ good: isGoodFit, lesson: sponsor.lesson, statChange: isGoodFit ? `+$${sponsor.pay.toLocaleString()} · +${sponsor.users} users` : `+$${Math.round(sponsor.pay * 0.3).toLocaleString()} · +${Math.round(sponsor.users * 0.2)} users (poor fit)` });
+    sounds[isGoodFit ? "cash" : "fail"]();
+    setTimeout(() => onComplete(isGoodFit ? { money: sponsor.pay, users: sponsor.users } : { money: Math.round(sponsor.pay * 0.3), users: Math.round(sponsor.users * 0.2) }), 3500);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "#888" }}>🎗️ Sponsorship Deal (Community)</p>
+        <TimerRing seconds={timeLeft} total={timer} color="#2dd4bf" />
+      </div>
+      <div style={{ background: "#0a1a1a", border: "0.5px solid #2dd4bf20", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
+        <p style={{ fontSize: 10, color: "#2dd4bf" }}>Your product: {profile.name} · Type: {profile.type}</p>
+      </div>
+      <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Pick the best sponsorship channel for your audience.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {SPONSORS.map((s, i) => (
+          <button key={i} onClick={() => { setChosen(i); submit(s); }} disabled={submitted}
+            style={{ padding: "10px 12px", background: chosen === i ? "#222" : "#111", border: `0.5px solid ${chosen === i ? "#2dd4bf" : "#222"}`, borderRadius: 8, cursor: "pointer", textAlign: "left" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <p style={{ fontSize: 12, color: chosen === i ? "#fff" : "#aaa" }}>{s.name}</p>
+              <p style={{ fontSize: 10, color: "#4ade80" }}>+${s.pay.toLocaleString()}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+    </div>
+  );
+}
 // ─── ACTIVITY MAP ─────────────────────────────────────────────────────────
 export const ACTIVITY_MAP = {
   "Cold Email": ColdEmailActivity,
@@ -2317,6 +2638,12 @@ export const ACTIVITY_MAP = {
   "Leak to Press": LeakToPressActivity,
   "Product Update": ProductUpdateActivity,
   "Draw Billionaire": DrawingActivity,
+  "Close Deal": CloseDealtActivity,
+  "Cost Cutting": CostCuttingActivity,
+  "Paid Campaign": PaidCampaignActivity,
+  "Freelance Gig": FreelanceGigActivity,
+  "Optimize Revenue": OptimizeRevenueActivity,
+  "Sponsorship Deal": SponsorshipDealActivity,
 };
 
 export default function Activity({ actionKey, onComplete, onCancel, scenario, difficulty, quirk }) {
