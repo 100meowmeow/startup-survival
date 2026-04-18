@@ -331,7 +331,7 @@ export default function ResultCard({
         </button>
       </div>
 
-      onClick={() => {
+      <button onClick={() => {
         const text = encodeURIComponent(`I got "${title}" in Startup Survival!\n\n💰 $${stats.money?.toLocaleString()} · 👥 ${stats.users} users · 😊 ${Math.round(stats.morale)}% morale\nScore: ${score.toLocaleString()}\n\nPlay here: ${window.location.origin}`);
         window.open(`https://wa.me/?text=${text}`, "_blank");
       }}
