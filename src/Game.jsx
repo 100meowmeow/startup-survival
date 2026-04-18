@@ -1,3 +1,4 @@
+import { incrementPlayerCount } from "./firebase";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getEventsForScenario } from "./events";
 import { sounds } from "./sounds";
@@ -133,6 +134,11 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
   const usedEventsRef = useRef([]);
   const stateRef = useRef({});
   stateRef.current = { money, users, morale, gameActive, stacks, reputation, passiveRevenue };
+
+  //Player Count
+  useEffect(() => {
+    incrementPlayerCount();
+  }, []);
 
   // Main timer
   useEffect(() => {

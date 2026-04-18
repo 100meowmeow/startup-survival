@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { db } from "./firebase";
 import { ref, set, get, onValue } from "firebase/database";
+import { getPlayerCount } from "./firebase";
 
 const SCENARIOS = [
   { id: "ai_hiring", name: "AI Hiring Tool", emoji: "🤖", tag: "Realistic", description: "Replace HR with algorithms. Bias lawsuits incoming. Enterprise clients are circling." },
@@ -108,6 +109,11 @@ export default function Lobby({ onGameStart }) {
   const [difficulty, setDifficulty] = useState("founder");
   const [ranked, setRanked] = useState(false);
   const [soloSaboteurMode, setSoloSaboteurMode] = useState("none");
+  const [playerCount, setPlayerCount] = useState(0);
+
+  useEffect(() => {
+    getPlayerCount().then(count => setPlayerCount(count));
+  }, []);
 
   const roomCodeRef = useRef("");
 
@@ -319,8 +325,12 @@ export default function Lobby({ onGameStart }) {
     <div style={{ maxWidth: 440, margin: "0 auto", padding: "2.5rem 1.5rem", textAlign: "center" }}>
       <div style={{ fontSize: 44, marginBottom: 8 }}>💀</div>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: "#ff4444", marginBottom: 4 }}>STARTUP SURVIVAL</h1>
-      <p style={{ color: "#555", fontSize: 12, marginBottom: 24 }}>Most startups fail. Yours probably will too.</p>
-
+      <p style={{ color: "#555", fontSize: 12, marginBottom: 8 }}>Most startups fail. Yours probably will too.</p>
+      {playerCount > 0 && (
+        <p style={{ color: "#333", fontSize: 11, marginBottom: 24 }}>
+          🎮 {playerCount.toLocaleString()} founders have played
+        </p>
+      )}
       <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name"
         style={{ width: "100%", padding: "12px 16px", background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 15, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 

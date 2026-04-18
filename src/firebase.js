@@ -13,3 +13,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
+import { getDatabase, ref, increment, update, get } from "firebase/database";
+
+export async function incrementPlayerCount() {
+  try {
+    await update(ref(db, "stats"), { totalPlayers: increment(1) });
+  } catch {}
+}
+
+export async function getPlayerCount() {
+  try {
+    const snap = await get(ref(db, "stats/totalPlayers"));
+    return snap.exists() ? snap.val() : 0;
+  } catch { return 0; }
+}
