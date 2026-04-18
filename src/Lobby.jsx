@@ -1,7 +1,6 @@
-import { useState, useRef } from "react";
-import { db } from "./firebase";
+import { useState, useEffect, useRef } from "react";
+import { db, getPlayerCount } from "./firebase";
 import { ref, set, get, onValue } from "firebase/database";
-import { getPlayerCount } from "./firebase";
 
 const SCENARIOS = [
   { id: "ai_hiring", name: "AI Hiring Tool", emoji: "🤖", tag: "Realistic", description: "Replace HR with algorithms. Bias lawsuits incoming. Enterprise clients are circling." },
@@ -38,15 +37,6 @@ const PERSONALITY_QUIRKS = [
   { id: "methodical", label: "📋 Methodical", desc: "Stacks build 50% faster — but one action at a time." },
   { id: "wildcard", label: "🃏 Wildcard", desc: "Every action has a 20% chance of a completely random outcome." },
 ];
-
-const SABOTEUR_RULES = {
-  1: { free: 0, paid: 0 },
-  2: { free: 0, paid: 0 },
-  3: { free: 1, paid: 1 },
-  4: { free: 1, paid: 2 },
-  5: { free: 1, paid: 2 },
-  6: { free: 2, paid: 3 },
-};
 
 const TAG_COLORS = {
   "Realistic": "#60a5fa",
@@ -97,6 +87,7 @@ export default function Lobby({ onGameStart }) {
   const [isHost, setIsHost] = useState(false);
   const [error, setError] = useState("");
   const [joining, setJoining] = useState(false);
+  const [gamesPlayed, setGamesPlayed] = useState(0);
 
   const [scenario, setScenario] = useState(() => randomScenario());
   const [rerollsUsed, setRerollsUsed] = useState(0);
@@ -109,13 +100,12 @@ export default function Lobby({ onGameStart }) {
   const [difficulty, setDifficulty] = useState("founder");
   const [ranked, setRanked] = useState(false);
   const [soloSaboteurMode, setSoloSaboteurMode] = useState("none");
-  const [playerCount, setPlayerCount] = useState(0);
-
-  useEffect(() => {
-    getPlayerCount().then(count => setPlayerCount(count));
-  }, []);
 
   const roomCodeRef = useRef("");
+
+  useEffect(() => {
+    getPlayerCount().then(count => setGamesPlayed(count));
+  }, []);
 
   function handleReroll() {
     if (rerollsUsed === 0) {
@@ -160,8 +150,8 @@ export default function Lobby({ onGameStart }) {
     if (!snap.exists()) { setError("Room not found."); setJoining(false); return; }
     const room = snap.val();
     if (room.status !== "waiting") { setError("This game already started."); setJoining(false); return; }
-    const playerCount = Object.keys(room.players || {}).length;
-    if (playerCount >= room.settings.maxPlayers) { setError("Room is full."); setJoining(false); return; }
+    const currentPlayers = Object.keys(room.players || {}).length;
+    if (currentPlayers >= room.settings.maxPlayers) { setError("Room is full."); setJoining(false); return; }
     await set(ref(db, `rooms/${roomCode.toUpperCase()}/players/${myId}`), { name: name.trim(), ready: false });
     roomCodeRef.current = roomCode.toUpperCase();
     listenToRoom(roomCode.toUpperCase());
@@ -196,9 +186,8 @@ export default function Lobby({ onGameStart }) {
   }
 
   const players = roomData?.players ? Object.values(roomData.players) : [];
-  const playerCount = players.length;
-  const canStart = isHost && playerCount >= 2;
-  const maxSab = SABOTEUR_RULES[Math.min(playerCount || 4, 6)] || { free: 0, paid: 0 };
+  const numPlayers = players.length;
+  const canStart = isHost && numPlayers >= 2;
 
   if (showTutorial) return <Tutorial onDone={() => setShowTutorial(false)} />;
   if (showScenarioPicker) return (
@@ -220,7 +209,7 @@ export default function Lobby({ onGameStart }) {
         </div>
 
         <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 12 }}>
-          <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Players ({playerCount}/{roomData.settings?.maxPlayers})</p>
+          <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Players ({numPlayers}/{roomData.settings?.maxPlayers})</p>
           {players.map((p, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#4ade80" }} />
@@ -228,7 +217,7 @@ export default function Lobby({ onGameStart }) {
               {i === 0 && <span style={{ fontSize: 9, color: "#555", background: "#222", padding: "1px 6px", borderRadius: 4 }}>host</span>}
             </div>
           ))}
-          {playerCount < 2 && <p style={{ color: "#444", fontSize: 11, marginTop: 6 }}>Waiting for at least 2 players...</p>}
+          {numPlayers < 2 && <p style={{ color: "#444", fontSize: 11, marginTop: 6 }}>Waiting for at least 2 players...</p>}
         </div>
 
         {isHost && (
@@ -262,27 +251,22 @@ export default function Lobby({ onGameStart }) {
             </div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Saboteurs</p>
-            <div style={{ display: "flex", gap: 5, marginBottom: 6 }}>
-              {[0, 1, 2, 3].map(n => {
-                const isPaid = n > maxSab.free;
-                const isDisabled = n > maxSab.paid || (playerCount < 6 && n === 3);
-                return (
-                  <button key={n} onClick={() => !isDisabled && setNumSaboteurs(n)} disabled={isDisabled}
-                    style={{ padding: "6px 12px", background: numSaboteurs === n ? (isPaid ? "#facc15" : "#ff4444") : "#111", color: numSaboteurs === n ? (isPaid ? "#000" : "#fff") : isDisabled ? "#333" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: isDisabled ? "default" : "pointer", fontSize: 11 }}>
-                    {n}{isPaid && !isDisabled ? " 💛" : ""}
-                  </button>
-                );
-              })}
+            <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+              {[0, 1, 2, 3].map(n => (
+                <button key={n} onClick={() => setNumSaboteurs(n)}
+                  style={{ padding: "6px 12px", background: numSaboteurs === n ? "#ff4444" : "#111", color: numSaboteurs === n ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                  {n}
+                </button>
+              ))}
             </div>
-            <p style={{ fontSize: 10, color: "#444", marginBottom: 14 }}>3 saboteurs requires 6 players · paid feature</p>
 
-            <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Scenario — randomly assigned</p>
+            <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Scenario</p>
             <div style={{ background: "#111", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 20 }}>{roomData.settings?.scenario?.emoji}</span>
+                <span style={{ fontSize: 20 }}>{scenario?.emoji}</span>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: "#fff" }}>{roomData.settings?.scenario?.name}</p>
-                  <p style={{ fontSize: 10, color: TAG_COLORS[roomData.settings?.scenario?.tag] }}>{roomData.settings?.scenario?.tag}</p>
+                  <p style={{ fontSize: 12, fontWeight: 500, color: "#fff" }}>{scenario?.name}</p>
+                  <p style={{ fontSize: 10, color: TAG_COLORS[scenario?.tag] }}>{scenario?.tag}</p>
                 </div>
               </div>
             </div>
@@ -326,11 +310,10 @@ export default function Lobby({ onGameStart }) {
       <div style={{ fontSize: 44, marginBottom: 8 }}>💀</div>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: "#ff4444", marginBottom: 4 }}>STARTUP SURVIVAL</h1>
       <p style={{ color: "#555", fontSize: 12, marginBottom: 8 }}>Most startups fail. Yours probably will too.</p>
-      {playerCount > 0 && (
-        <p style={{ color: "#333", fontSize: 11, marginBottom: 24 }}>
-          🎮 {playerCount.toLocaleString()} founders have played
-        </p>
+      {gamesPlayed > 0 && (
+        <p style={{ color: "#333", fontSize: 11, marginBottom: 24 }}>🎮 {gamesPlayed.toLocaleString()} games played</p>
       )}
+
       <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name"
         style={{ width: "100%", padding: "12px 16px", background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 15, outline: "none", boxSizing: "border-box", marginBottom: 14 }} />
 
@@ -356,7 +339,6 @@ export default function Lobby({ onGameStart }) {
       {/* Solo mode */}
       {mode === "solo" && (
         <div style={{ textAlign: "left" }}>
-          {/* Scenario */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Startup scenario</p>
@@ -367,7 +349,6 @@ export default function Lobby({ onGameStart }) {
               <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
             </div>
             <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
-            <p style={{ fontSize: 10, color: "#444", marginBottom: 8 }}>Randomly assigned. One free re-roll. Pay $0.99 to pick your own.</p>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={handleReroll} disabled={rerollsUsed >= 1}
                 style={{ flex: 1, padding: "7px", background: rerollsUsed === 0 ? "#222" : "#111", color: rerollsUsed === 0 ? "#aaa" : "#444", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: rerollsUsed === 0 ? "pointer" : "default" }}>
@@ -380,7 +361,6 @@ export default function Lobby({ onGameStart }) {
             </div>
           </div>
 
-          {/* Difficulty */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Difficulty</p>
             {Object.entries(DIFFICULTY_INFO).map(([id, info]) => (
@@ -392,7 +372,6 @@ export default function Lobby({ onGameStart }) {
             ))}
           </div>
 
-          {/* Saboteur mode */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Saboteur mode</p>
             {[
@@ -408,7 +387,6 @@ export default function Lobby({ onGameStart }) {
             ))}
           </div>
 
-          {/* Game length */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Game length</p>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -427,7 +405,6 @@ export default function Lobby({ onGameStart }) {
             </div>
           </div>
 
-          {/* Ranked */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 14 }}>
             <button onClick={() => setRanked(!ranked)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", width: "100%" }}>
               <p style={{ fontSize: 12, color: ranked ? "#facc15" : "#666", fontWeight: ranked ? 700 : 400 }}>{ranked ? "🏆 Ranked mode ON" : "🏆 Ranked mode OFF"}</p>
@@ -449,10 +426,9 @@ export default function Lobby({ onGameStart }) {
       {/* Host mode */}
       {mode === "host" && !roomData && (
         <div style={{ textAlign: "left" }}>
-          {/* Scenario */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Scenario — randomly assigned</p>
+              <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Scenario</p>
               <span style={{ fontSize: 9, color: TAG_COLORS[scenario.tag], background: "#111", padding: "2px 6px", borderRadius: 4 }}>{scenario.tag}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
@@ -460,7 +436,6 @@ export default function Lobby({ onGameStart }) {
               <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
             </div>
             <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
-            <p style={{ fontSize: 10, color: "#444", marginBottom: 8 }}>Everyone gets this scenario. One free re-roll. Pay $0.99 to pick your own.</p>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={handleReroll} disabled={rerollsUsed >= 1}
                 style={{ flex: 1, padding: "7px", background: rerollsUsed === 0 ? "#222" : "#111", color: rerollsUsed === 0 ? "#aaa" : "#444", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: rerollsUsed === 0 ? "pointer" : "default" }}>
@@ -473,7 +448,6 @@ export default function Lobby({ onGameStart }) {
             </div>
           </div>
 
-          {/* Settings */}
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Settings</p>
 
@@ -515,6 +489,16 @@ export default function Lobby({ onGameStart }) {
                 <button key={n} onClick={() => setMaxPlayers(n)}
                   style={{ padding: "6px 12px", background: maxPlayers === n ? "#facc15" : "#111", color: maxPlayers === n ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
                   {n} 💛
+                </button>
+              ))}
+            </div>
+
+            <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Saboteurs</p>
+            <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+              {[0, 1, 2, 3].map(n => (
+                <button key={n} onClick={() => setNumSaboteurs(n)}
+                  style={{ padding: "6px 12px", background: numSaboteurs === n ? "#ff4444" : "#111", color: numSaboteurs === n ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                  {n}
                 </button>
               ))}
             </div>
@@ -599,7 +583,7 @@ function Tutorial({ onDone }) {
     { title: "Discover secret combos", body: "Some action combinations unlock powerful bonuses nobody told you about. Blog posts + networking + pitch practice = a media moment. Find the combos.", emoji: "🔮" },
     { title: "Watch for the rat", body: "Someone might be the Saboteur. Money going missing? Morale dropping for no reason? Start asking questions in chat.", emoji: "🐀" },
     { title: "Market conditions shift", body: "The market changes mid-game. Recession hits. AI hype peaks. Regulatory crackdowns. Time your actions around market conditions.", emoji: "📈" },
-    { title: "You're ready", body: "Survive the timer or hit $100k revenue to win. Good luck. You'll probably need it.", emoji: "🏆" },
+    { title: "You're ready", body: "Survive the timer or get acquired to win. Good luck. You'll probably need it.", emoji: "🏆" },
   ];
   const s = steps[step];
   return (

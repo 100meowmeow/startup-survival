@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase } from "firebase/database";
+import { getDatabase, ref, increment, update, get } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD2-bZtW3hb3PG2JyV37oft9kNdLGTAk9w",
@@ -13,7 +13,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
-import { getDatabase, ref, increment, update, get } from "firebase/database";
 
 export async function incrementPlayerCount() {
   try {
