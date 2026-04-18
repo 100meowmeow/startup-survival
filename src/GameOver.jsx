@@ -245,7 +245,7 @@ Give a personalized debrief: what they did well, what killed them, and one speci
               <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Your email address" type="email"
                 style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
               <p style={{ fontSize: 10, color: "#444", marginBottom: 10 }}>Your email is only used to contact you about prizes. We don't spam.</p>
-              <button onClick={handleContactSubmit} disabled={!contactEmail.trim()}
+              <button onClick={handleContactSubmit} disabled={!contactEmail.trim() || !contactEmail.includes("@") || !contactEmail.includes(".") || contactEmail.indexOf("@") > contactEmail.lastIndexOf(".")}
                 style={{ width: "100%", padding: "11px", background: contactEmail.trim() ? "#facc15" : "#222", color: contactEmail.trim() ? "#000" : "#555", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: contactEmail.trim() ? "pointer" : "default" }}>
                 Confirm & Lock Score →
               </button>
@@ -275,8 +275,9 @@ Give a personalized debrief: what they did well, what killed them, and one speci
       <div style={{ background: "#111", border: "0.5px solid #60a5fa30", borderRadius: 10, padding: "12px", marginBottom: 16 }}>
         <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🎖️ Ranked Badge</p>
         <p style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>A shareable badge showing your rank, title, and difficulty level.</p>
-        <button style={{ width: "100%", padding: "9px", background: "#60a5fa20", color: "#60a5fa", border: "0.5px solid #60a5fa40", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
-          Get Ranked Badge — $2.99
+        <button onClick={() => alert("Ranked Badge coming soon! This will generate a shareable image with your rank, title, and difficulty level. Check back after the hackathon for the full version.")}
+          style={{ width: "100%", padding: "9px", background: "#60a5fa20", color: "#60a5fa", border: "0.5px solid #60a5fa40", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+          Get Ranked Badge — $2.99 (coming soon)
         </button>
       </div>
 

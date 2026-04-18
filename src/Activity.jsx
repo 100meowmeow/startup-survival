@@ -1785,31 +1785,54 @@ Is the answer honest? Specific? Appropriately long (15-60 words ideal)? Does it 
   );
 }
 
-function TownHallActivity({ onComplete, difficulty }) {
+function TownHallActivity({ onComplete, scenario, difficulty }) {
   const timer = getTimer(30, difficulty);
+  const profile = getScenarioProfile(scenario?.id);
+  const CEO_MOTIONS = [
+    "The CEO wants to cut salaries by 20% to extend runway",
+    "The CEO wants to pivot the entire product to enterprise",
+    "The CEO wants to fire the community manager to save costs",
+    "The CEO wants to take a $500k investment at 40% equity",
+    "The CEO wants to move the whole team to a new city",
+    "The CEO wants to launch in 3 new markets simultaneously",
+    "The CEO wants to cancel the roadmap and rebuild from scratch",
+  ];
+  const ceoMotion = useRef(CEO_MOTIONS[Math.floor(Math.random() * CEO_MOTIONS.length)]).current;
   const [motion, setMotion] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [voting, setVoting] = useState(false);
   const [votes, setVotes] = useState({ yes: 0, no: 0 });
   const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
   const timeLeft = useCountdown(timer, () => submit(true), !submitted);
 
-  function submit(timedOut = false) {
+  async function submit(timedOut = false) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !motion.trim()) {
-      setResult({ good: false, lesson: "A Town Hall with no motion is just a meeting. Always come prepared.", statChange: "-5% morale" });
+      setResult({ good: false, lesson: "A Town Hall with no counter-motion is just complaining. Always come prepared with a specific alternative.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
+    setLoading(true);
+    const prompt = `Grade this counter-motion in a startup Town Hall.
+CEO's motion: "${ceoMotion}"
+Counter-motion proposed: "${motion}"
+Company context: ${profile.name} (${profile.type})
+
+Does the counter-motion make logical business sense as an alternative? Is it specific enough to be actionable? Does it address the underlying concern the CEO has while offering a better path? Is it well-reasoned? Grade on quality of business thinking, not writing style.`;
+    const grade = await gradeWithAI(prompt);
+    setLoading(false);
+
     setVoting(true);
+    const passChance = grade.score > 60 ? 0.75 : grade.score > 40 ? 0.50 : 0.25;
     let y = 0, n = 0;
     const interval = setInterval(() => {
-      if (Math.random() > 0.42) y++; else n++;
+      if (Math.random() < passChance) y++; else n++;
       setVotes({ yes: y, no: n });
       if (y + n >= 5) {
         clearInterval(interval);
         const passed = y > n;
-        setResult({ good: passed, lesson: passed ? "Motion passed. Democratic decisions build buy-in even when they overrule the CEO." : "Motion failed. Respect the process — forcing decisions kills morale.", statChange: passed ? "+20% morale" : "-5% morale" });
+        setResult({ good: passed, lesson: passed ? grade.lesson || "Motion passed. A well-reasoned counter carries the room." : grade.lesson || "Motion failed. The team wasn't convinced by your alternative.", statChange: passed ? "+20% morale" : "-5% morale" });
         sounds[passed ? "success" : "fail"]();
         setTimeout(() => onComplete(passed ? { morale: 20 } : { morale: -5 }), 3500);
       }
@@ -1822,17 +1845,33 @@ function TownHallActivity({ onComplete, difficulty }) {
         <p style={{ fontSize: 12, color: "#888" }}>🗳️ Town Hall (Community)</p>
         {!voting && <TimerRing seconds={timeLeft} total={timer} color="#2dd4bf" />}
       </div>
+
+      <div style={{ background: "#1a0808", border: "1px solid #ff444430", borderRadius: 10, padding: "12px", marginBottom: 12 }}>
+        <p style={{ fontSize: 10, color: "#ff4444", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>⚠️ CEO's motion</p>
+        <p style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{ceoMotion}</p>
+        <p style={{ fontSize: 10, color: "#555", marginTop: 4 }}>You disagree. Write a counter-motion to overrule them.</p>
+      </div>
+
       {!voting ? (
         <>
-          <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Write your motion. This overrules the CEO — make it count.</p>
-          <textarea value={motion} onChange={e => setMotion(e.target.value)} placeholder="I move that the company should..." rows={3}
-            style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 12, outline: "none", resize: "none", boxSizing: "border-box", marginBottom: 10 }} />
-          <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#2dd4bf", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Call the Vote →</button>
+          {!loading && (
+            <>
+              <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Your counter-motion — be specific and logical:</p>
+              <textarea value={motion} onChange={e => setMotion(e.target.value)}
+                placeholder="Instead, I propose that the company should..." rows={3}
+                style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 12, outline: "none", resize: "none", boxSizing: "border-box", marginBottom: 10 }} />
+              <button onClick={() => submit(false)}
+                style={{ width: "100%", padding: "10px", background: "#2dd4bf", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                Call the Vote →
+              </button>
+            </>
+          )}
+          {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI evaluating your motion...</p>}
         </>
       ) : (
         <div style={{ textAlign: "center", padding: "10px 0" }}>
-          <p style={{ fontSize: 13, color: "#fff", marginBottom: 16 }}>"{motion}"</p>
-          <div style={{ display: "flex", gap: 20, justifyContent: "center", marginBottom: 16 }}>
+          <p style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>Counter: "{motion}"</p>
+          <div style={{ display: "flex", gap: 20, justifyContent: "center", marginBottom: 14 }}>
             <div><p style={{ fontSize: 32, fontWeight: 700, color: "#4ade80" }}>{votes.yes}</p><p style={{ fontSize: 11, color: "#555" }}>Yes</p></div>
             <div><p style={{ fontSize: 32, fontWeight: 700, color: "#ff4444" }}>{votes.no}</p><p style={{ fontSize: 11, color: "#555" }}>No</p></div>
           </div>

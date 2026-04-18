@@ -312,16 +312,10 @@ export default function ResultCard({
         >
           📋 Copy Result
         </button>
-        <button
-          onClick={() => {
-            const text = encodeURIComponent(
-              `I just got "${title}" in Startup Survival! Score: ${score.toLocaleString()}. Can you beat me? 🏢`
-            );
-            window.open(
-              `https://twitter.com/intent/tweet?text=${text}`,
-              '_blank'
-            );
-          }}
+        <button onClick={() => {
+          const text = encodeURIComponent(`I just got "${title}" in Startup Survival!\n\n💰 $${stats.money?.toLocaleString()} · 👥 ${stats.users} users · 😊 ${Math.round(stats.morale)}% morale\nScore: ${score.toLocaleString()} · ${stats.scenario}\n\nCan you beat me? 🏢\n\n${window.location.origin}`);
+          window.open(`https://x.com/intent/tweet?text=${text}`, "_blank");
+        }}
           style={{
             padding: '11px',
             background: '#000',
@@ -337,17 +331,10 @@ export default function ResultCard({
         </button>
       </div>
 
-      <button
-        onClick={() => {
-          const text = encodeURIComponent(
-            `I got "${title}" in Startup Survival!\n\n💰 $${stats.money.toLocaleString()} · 👥 ${
-              stats.users
-            } users · 😊 ${
-              stats.morale
-            }% morale\nScore: ${score.toLocaleString()}\n\nCan you beat me?`
-          );
-          window.open(`https://wa.me/?text=${text}`, '_blank');
-        }}
+      onClick={() => {
+        const text = encodeURIComponent(`I got "${title}" in Startup Survival!\n\n💰 $${stats.money?.toLocaleString()} · 👥 ${stats.users} users · 😊 ${Math.round(stats.morale)}% morale\nScore: ${score.toLocaleString()}\n\nPlay here: ${window.location.origin}`);
+        window.open(`https://wa.me/?text=${text}`, "_blank");
+      }}
         style={{
           width: '100%',
           padding: '11px',

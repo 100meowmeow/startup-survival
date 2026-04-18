@@ -71,6 +71,28 @@ const SEASONAL_EVENTS = [
   { triggerTime: 0.75, event: { tier: 3, text: "🏆 Industry awards announced. If your morale is above 70%, you're nominated.", options: [{ label: "Accept the nomination", effect: { users: 800, morale: 20 } }, { label: "Decline — stay focused", effect: { morale: 10 } }] } },
 ];
 
+function PitchTimer({ onExpire }) {
+  const [seconds, setSeconds] = useState(90);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setSeconds(prev => {
+        if (prev <= 1) { clearInterval(t); onExpire(); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+  const pct = (seconds / 90) * 100;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width: 60, height: 4, background: "#1a1a1a", borderRadius: 2 }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: seconds < 20 ? "#ff4444" : "#60a5fa", borderRadius: 2, transition: "width 1s linear" }} />
+      </div>
+      <p style={{ fontSize: 11, color: seconds < 20 ? "#ff4444" : "#555", fontFamily: "monospace" }}>{seconds}s</p>
+    </div>
+  );
+}
+
 export default function Game({ gameConfig, playerData, onGameOver }) {
   const difficulty = DIFFICULTY_SETTINGS[gameConfig.difficulty || "founder"];
   const duration = GAME_DURATIONS[gameConfig.gameLength] || 600;
@@ -142,12 +164,14 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     const t = setInterval(() => {
       if (!stateRef.current.gameActive) return;
       setMorale(prev => {
-        const decay = difficulty.consequenceMultiplier * 1;
-        const newMorale = Math.max(0, prev - decay);
+        const decayRate = {
+          intern: 0.5, founder: 1.5, veteran: 2.5, shark: 4,
+        }[gameConfig.difficulty || "founder"] || 1.5;
+        const newMorale = Math.max(0, prev - decayRate);
         if (newMorale <= 0) endGame("morale");
         return newMorale;
       });
-    }, 30000);
+    }, 15000);
     return () => clearInterval(t);
   }, []);
 
@@ -198,9 +222,14 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     if (!currentEvent || eventTimeLeft === null) return;
     if (eventTimeLeft <= 0) {
       const worstOption = currentEvent.options[currentEvent.options.length - 1];
-      applyEffect(worstOption.effect, 1.5);
-      addLog(`⚠️ You ignored an event. Worst outcome applied automatically.`);
-      setFeedback("You ignored that. It cost you. ⚠️");
+      const penaltyEffect = {
+        money: Math.min(0, (worstOption.effect.money || 0) * 1.5),
+        users: Math.min(0, (worstOption.effect.users || 0) * 1.5),
+        morale: Math.min(-10, (worstOption.effect.morale || 0) * 1.5),
+      };
+      applyEffect(penaltyEffect);
+      addLog(`⚠️ Ignored event — worst outcome + penalty applied`);
+      setFeedback("⚠️ You ignored that. Extra penalty applied.");
       setTimeout(() => setFeedback(null), 3000);
       setCurrentEvent(null);
       setEventTimeLeft(null);
@@ -387,18 +416,25 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     if (!result) return;
     if (result.defect) {
       setDefected(true);
-      applyEffect({ money: -Math.floor(stateRef.current.money * 0.6), users: -Math.floor(stateRef.current.users * 0.6) });
+      applyEffect({
+        money: -Math.floor(stateRef.current.money * 0.6),
+        users: -Math.floor(stateRef.current.users * 0.6)
+      });
       addLog("💀 You defected!");
       setFeedback("😈 You defected! Starting rival company...");
       setTimeout(() => setFeedback(null), 3000);
     } else {
-      applyEffect(result);
+      if (Object.keys(result).length > 0) {
+        applyEffect(result);
+      }
       const changes = [];
       if (result.money) changes.push(`${result.money > 0 ? "+" : ""}$${Math.abs(result.money).toLocaleString()}`);
       if (result.users) changes.push(`${result.users > 0 ? "+" : ""}${result.users} users`);
       if (result.morale) changes.push(`${result.morale > 0 ? "+" : ""}${result.morale}% morale`);
-      setActivityResult({ key, changes: changes.join(" · ") || "No change", positive: (result.money || 0) >= 0 && (result.users || 0) >= 0 });
-      setTimeout(() => setActivityResult(null), 4000);
+      if (changes.length > 0) {
+        setActivityResult({ key, changes: changes.join(" · "), positive: (result.money || 0) >= 0 && (result.users || 0) >= 0 });
+        setTimeout(() => setActivityResult(null), 4000);
+      }
     }
     addLog(`✓ ${key}: ${result.users ? (result.users > 0 ? "+" : "") + result.users + " users " : ""}${result.money ? (result.money > 0 ? "+" : "") + "$" + Math.abs(result.money).toLocaleString() : ""}`);
     startCooldown(key, cooldownSecs);
@@ -727,11 +763,17 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       {/* Investor pitch */}
       {showInvestorPitch && !pitchResponse && (
         <div style={{ background: "#0a0f1a", border: "1px solid #60a5fa50", borderRadius: 12, padding: "1rem", marginBottom: 10 }}>
-          <p style={{ fontSize: 10, color: "#60a5fa", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>🦈 Investor Pitch</p>
-          <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>An investor walked in. Pitch your startup in 90 seconds.</p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <p style={{ fontSize: 10, color: "#60a5fa", textTransform: "uppercase", letterSpacing: 1 }}>🦈 Investor Pitch</p>
+            <PitchTimer onExpire={() => { if (!pitchLoading) setShowInvestorPitch(false); }} />
+          </div>
+          <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>An investor walked in. Pitch your startup. Be specific about your traction, market, and ask.</p>
+          <div style={{ background: "#111", border: "0.5px solid #333", borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
+            <p style={{ fontSize: 9, color: "#555" }}>💡 Tips: mention your users, revenue, and what makes you different. Vague pitches get PASS every time.</p>
+          </div>
           <textarea value={pitchText} onChange={e => setPitchText(e.target.value)}
-            placeholder="We are building... our customer is... our traction... we need..."
-            style={{ width: "100%", height: 80, background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 12, padding: "8px", boxSizing: "border-box", resize: "none", outline: "none", marginBottom: 8 }} />
+            placeholder="We are building [X] for [Y customers]. We have [Z traction]. We're asking for $[amount] to [goal]..."
+            style={{ width: "100%", height: 90, background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 12, padding: "8px", boxSizing: "border-box", resize: "none", outline: "none", marginBottom: 8 }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={submitPitch} disabled={pitchLoading || !pitchText.trim()}
               style={{ flex: 1, padding: "9px", background: pitchText.trim() ? "#60a5fa" : "#222", color: pitchText.trim() ? "#000" : "#555", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: pitchText.trim() ? "pointer" : "default" }}>
