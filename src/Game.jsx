@@ -509,21 +509,9 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       const res = await fetch("/.netlify/functions/claude-proxy", {        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          system: `You are ${investor.name}, ${
-            investor.background
-          }. You are judging a startup pitch in a multiplayer business simulation game. The startup is: ${scenario}. Current stats: $${stateRef.current.money.toLocaleString()} cash, ${
-            stateRef.current.users
-          } users, ${
-            stateRef.current.morale
-          }% team morale. You care most about ${
-            investor.cares
-          }. Your deal-breaker is: ${
-            investor.dealbreaker
-          }. Respond in 3-4 sentences max, in character. Be direct and a little harsh but educational. End with exactly one of these verdicts on its own line: DEAL: $[amount]k for [equity]% | COUNTER: [one line counter offer] | PASS: [one brutal reason]`,
-          messages: [{ role: 'user', content: pitchText }],
-        }),
+          system: `You are ${investor.name}, ${investor.background}. You are judging a startup pitch in a multiplayer business simulation game. The startup is: ${scenario}. Current stats: $${stateRef.current.money.toLocaleString()} cash, ${stateRef.current.users} users, ${stateRef.current.morale}% team morale. You care most about ${investor.cares}. Your deal-breaker is: ${investor.dealbreaker}. Respond in 3-4 sentences max, in character. Be direct and a little harsh but educational. End with exactly one of these verdicts on its own line: DEAL: $[amount]k for [equity]% | COUNTER: [one line counter offer] | PASS: [one brutal reason]`,
+          messages: [{ role: "user", content: pitchText }]
+        })
       });
       const data = await res.json();
       const text = data.content?.[0]?.text || 'The investor left the room.';
