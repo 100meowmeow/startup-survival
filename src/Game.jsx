@@ -506,8 +506,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     const investor = INVESTORS[Math.floor(Math.random() * INVESTORS.length)];
     try {
       const scenario = gameConfig.scenario?.name || 'a startup';
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
+      const res = await fetch("/.netlify/functions/claude-proxy", {        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
