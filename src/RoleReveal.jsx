@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+const ROLES = ["CEO", "CFO", "CMO", "CTO", "COO", "Head of Sales", "Community Manager"];
+
+const QUIRKS = ["overconfident", "cautious", "charismatic", "paranoid", "lucky", "reckless", "methodical", "wildcard"];
+
 const ROLE_INFO = {
   "CEO": {
     emoji: "👑", color: "#60a5fa",
@@ -54,13 +58,13 @@ const ROLE_INFO = {
 
 const QUIRK_INFO = {
   overconfident: { label: "😤 Overconfident", desc: "Your morale never drops below 40% — but bad decisions cost double.", color: "#fb923c" },
-  cautious: { label: "🤔 Cautious", desc: "Your actions always work — but at 60% effectiveness.", color: "#60a5fa" },
-  charismatic: { label: "😎 Charismatic", desc: "Networking and AMA always succeed — but financial decisions are riskier.", color: "#facc15" },
-  paranoid: { label: "😰 Paranoid", desc: "You see all saboteur actions — but you're 20% slower on activities.", color: "#a78bfa" },
-  lucky: { label: "🍀 Lucky", desc: "Random events have a 30% chance to flip positive.", color: "#4ade80" },
-  reckless: { label: "🎲 Reckless", desc: "All outcomes doubled — double wins AND double losses.", color: "#ff4444" },
-  methodical: { label: "📋 Methodical", desc: "Stacks build 50% faster — but one action at a time.", color: "#2dd4bf" },
-  wildcard: { label: "🃏 Wildcard", desc: "Every action has a 20% chance of a completely random outcome.", color: "#f472b6" },
+  cautious:      { label: "🤔 Cautious",       desc: "Your actions always work — but at 60% effectiveness.", color: "#60a5fa" },
+  charismatic:   { label: "😎 Charismatic",    desc: "Networking and AMA always succeed — but financial decisions are riskier.", color: "#facc15" },
+  paranoid:      { label: "😰 Paranoid",       desc: "You see all saboteur actions — but you're 20% slower on activities.", color: "#a78bfa" },
+  lucky:         { label: "🍀 Lucky",          desc: "Random events have a 30% chance to flip positive.", color: "#4ade80" },
+  reckless:      { label: "🎲 Reckless",       desc: "All outcomes doubled — double wins AND double losses.", color: "#ff4444" },
+  methodical:    { label: "📋 Methodical",     desc: "Stacks build 50% faster — but one action at a time.", color: "#2dd4bf" },
+  wildcard:      { label: "🃏 Wildcard",       desc: "Every action has a 20% chance of a completely random outcome.", color: "#f472b6" },
 };
 
 const SABOTEUR_TIPS = [
@@ -72,17 +76,32 @@ const SABOTEUR_TIPS = [
   "The COO has a one-time audit that can reveal you. Watch for it.",
 ];
 
+const STRIPE_REROLL = "https://buy.stripe.com/6oUfZg5XZeXgebc3P28Zq07";
+
+function randomRoleExcluding(currentRole) {
+  const pool = ROLES.filter(r => r !== currentRole);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function randomQuirkExcluding(currentQuirk) {
+  const pool = QUIRKS.filter(q => q !== currentQuirk);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export default function RoleReveal({ playerData, onReady }) {
   const [revealed, setRevealed] = useState(false);
-  const [rerolled, setRerolled] = useState(false);
+  const [rerollsUsed, setRerollsUsed] = useState(0);
   const [countdown, setCountdown] = useState(null);
 
-  const info = ROLE_INFO[playerData.role] || {
+  // Local state for the displayed role/quirk — starts from playerData
+  const [currentRole, setCurrentRole] = useState(playerData.role);
+  const [currentQuirk, setCurrentQuirk] = useState(playerData.quirk);
+
+  const info = ROLE_INFO[currentRole] || {
     emoji: "❓", color: "#888",
     description: "Unknown role.", power: "Unknown", weakness: "Unknown", tip: "Figure it out.",
   };
-
-  const quirkInfo = QUIRK_INFO[playerData.quirk];
+  const quirkInfo = QUIRK_INFO[currentQuirk];
 
   function handleReveal() {
     setRevealed(true);
@@ -95,11 +114,25 @@ export default function RoleReveal({ playerData, onReady }) {
     }, 1000);
   }
 
-  function handleReroll() {
-    // Free reroll — just reassigns a random role visually
-    // In a full implementation this would write to Firebase
-    setRerolled(true);
-    alert("Re-rolling your role... (In full version this updates Firebase. For now, refresh to get a new role.) Second re-roll costs $0.99.");
+  function handleFreeReroll() {
+    // Pick a genuinely different role and quirk
+    const newRole = randomRoleExcluding(currentRole);
+    const newQuirk = randomQuirkExcluding(currentQuirk);
+    setCurrentRole(newRole);
+    setCurrentQuirk(newQuirk);
+    setRerollsUsed(1);
+  }
+
+  function handlePaidReroll() {
+    window.location.href = STRIPE_REROLL;
+  }
+
+  // Called when returning from Stripe with ?paid=reroll
+  // (App.jsx or Lobby should handle this, but as a safety net we also check here)
+
+  function handleReady() {
+    // Pass updated role/quirk back up so the game uses the rerolled values
+    onReady({ ...playerData, role: currentRole, quirk: currentQuirk });
   }
 
   return (
@@ -134,7 +167,7 @@ export default function RoleReveal({ playerData, onReady }) {
           <div style={{ background: "#1a1a1a", border: `1px solid ${info.color}40`, borderRadius: 16, padding: "1.5rem", marginBottom: 12, textAlign: "left" }}>
             <div style={{ textAlign: "center", marginBottom: 14 }}>
               <div style={{ fontSize: 46, marginBottom: 6 }}>{info.emoji}</div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, color: info.color }}>{playerData.role}</h2>
+              <h2 style={{ fontSize: 22, fontWeight: 700, color: info.color }}>{currentRole}</h2>
             </div>
 
             <p style={{ fontSize: 12, color: "#aaa", lineHeight: 1.6, marginBottom: 14 }}>{info.description}</p>
@@ -164,27 +197,34 @@ export default function RoleReveal({ playerData, onReady }) {
             </div>
           )}
 
-          {/* Reroll option */}
-          {!rerolled && (
-            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-              <button onClick={handleReroll}
-                style={{ flex: 1, padding: "9px", background: "#1a1a1a", color: "#aaa", border: "0.5px solid #333", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
-                🎲 Re-roll role (1 free)
+          {/* Reroll buttons — always shown, change based on rerollsUsed */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {rerollsUsed === 0 ? (
+              <>
+                <button onClick={handleFreeReroll}
+                  style={{ flex: 1, padding: "9px", background: "#1a1a1a", color: "#aaa", border: "0.5px solid #333", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
+                  🎲 Re-roll role (1 free)
+                </button>
+                <button onClick={handlePaidReroll}
+                  style={{ flex: 1, padding: "9px", background: "#1a1a1a", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
+                  💛 2nd re-roll ($0.99)
+                </button>
+              </>
+            ) : (
+              <button onClick={handlePaidReroll}
+                style={{ width: "100%", padding: "9px", background: "#1a1a1a", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
+                💛 Re-roll again ($0.99)
               </button>
-              <button
-                style={{ flex: 1, padding: "9px", background: "#1a1a1a", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>
-                💛 2nd re-roll ($0.99)
-              </button>
-            </div>
-          )}
+            )}
+          </div>
 
-          <button onClick={onReady}
+          <button onClick={handleReady}
             style={{ width: "100%", padding: "13px", background: info.color, color: "#000", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
             I'm Ready → {countdown !== null && countdown > 0 ? `(${countdown})` : ""}
           </button>
 
           <p style={{ color: "#333", fontSize: 10, marginTop: 10 }}>
-            Your role shown to teammates: <strong style={{ color: "#444" }}>{playerData.role}</strong>
+            Your role shown to teammates: <strong style={{ color: "#444" }}>{currentRole}</strong>
             {playerData.isSaboteur && <span style={{ color: "#ff4444" }}> (they don't know you're also a Saboteur)</span>}
           </p>
         </div>
