@@ -52,6 +52,21 @@ const DIFFICULTY_INFO = {
   shark:   { label: "🦈 Shark",   desc: "Brutal. Cursed luck. Beatable with skill.", color: "#ff4444" },
 };
 
+// ─── Stripe Payment Links ───────────────────────────────────────────
+const STRIPE = {
+  reroll:   "https://buy.stripe.com/6oUfZg5XZeXgebc3P28Zq07",
+  scenario: "https://buy.stripe.com/8x2bJ09ab3ey1oq3P28Zq06",
+  saboteur: "https://buy.stripe.com/eVq5kCfyz5mG0kmbhu8Zq00",
+  player5:  "https://buy.stripe.com/7sY7sK0DF16q4AC3P28Zq08",
+  player6:  "https://buy.stripe.com/dRmeVc4TV4iC4AC5Xa8Zq01",
+  min20:    "https://buy.stripe.com/28E4gy8678ySd781GU8Zq05",
+};
+
+function goToStripe(key, roomCode = "") {
+  const successUrl = `https://survival-startup.netlify.app/?paid=${key}${roomCode ? `&room=${roomCode}` : ""}`;
+  window.location.href = `${STRIPE[key]}?success_url=${encodeURIComponent(successUrl)}`;
+}
+
 function generateRoomCode() {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
@@ -107,10 +122,38 @@ export default function Lobby({ onGameStart }) {
     getPlayerCount().then(count => setGamesPlayed(count));
   }, []);
 
+  // ─── Handle return from Stripe ──────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paidFeature = params.get("paid");
+    const returnedRoom = params.get("room");
+    if (!paidFeature) return;
+
+    // Clean the URL so refreshing doesn't re-trigger
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (paidFeature === "reroll") {
+      setScenario(randomScenario());
+      setRerollsUsed(0);
+    }
+    if (paidFeature === "scenario") {
+      setShowScenarioPicker(true);
+    }
+    if (paidFeature === "saboteur") {
+      setNumSaboteurs(prev => Math.min(prev + 1, 3));
+    }
+    if (paidFeature === "player5") setMaxPlayers(5);
+    if (paidFeature === "player6") setMaxPlayers(6);
+    if (paidFeature === "min20") setGameLength(20);
+    if (returnedRoom) setRoomCode(returnedRoom);
+  }, []);
+
   function handleReroll() {
     if (rerollsUsed === 0) {
       setScenario(randomScenario());
       setRerollsUsed(1);
+    } else {
+      goToStripe("reroll", roomCode);
     }
   }
 
@@ -194,7 +237,48 @@ export default function Lobby({ onGameStart }) {
     <ScenarioPicker scenarios={SCENARIOS} onPick={(s) => { setScenario(s); setShowScenarioPicker(false); }} onClose={() => setShowScenarioPicker(false)} />
   );
 
-  // Room waiting screen
+  // ─── Reusable sub-components ────────────────────────────────────
+
+  const ScenarioBlock = ({ currentRoomCode = "" }) => (
+    <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Startup scenario</p>
+        <span style={{ fontSize: 9, color: TAG_COLORS[scenario.tag], background: "#111", padding: "2px 6px", borderRadius: 4 }}>{scenario.tag}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <span style={{ fontSize: 26 }}>{scenario.emoji}</span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
+      </div>
+      <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={handleReroll}
+          style={{ flex: 1, padding: "7px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
+          {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll again ($0.99)"}
+        </button>
+        <button onClick={() => goToStripe("scenario", currentRoomCode)}
+          style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
+          💛 Pick mine ($0.99)
+        </button>
+      </div>
+    </div>
+  );
+
+  const GameLengthBlock = ({ small = false, currentRoomCode = "" }) => (
+    <div style={{ display: "flex", gap: small ? 5 : 6, flexWrap: "wrap" }}>
+      {[5, 10, 15].map(t => (
+        <button key={t} onClick={() => setGameLength(t)}
+          style={{ padding: small ? "6px 12px" : "7px 14px", background: gameLength === t ? "#ff4444" : "#111", color: gameLength === t ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: small ? 11 : 12 }}>
+          {t} min
+        </button>
+      ))}
+      <button onClick={() => goToStripe("min20", currentRoomCode)}
+        style={{ padding: small ? "6px 12px" : "7px 14px", background: gameLength === 20 ? "#facc15" : "#111", color: gameLength === 20 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: small ? 11 : 12 }}>
+        20 min 💛
+      </button>
+    </div>
+  );
+
+  // ─── Room waiting screen ────────────────────────────────────────
   if (roomData && (isHost || !joining)) {
     return (
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "2rem 1.5rem" }}>
@@ -225,19 +309,8 @@ export default function Lobby({ onGameStart }) {
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Settings</p>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Game length</p>
-            <div style={{ display: "flex", gap: 5, marginBottom: 14, flexWrap: "wrap" }}>
-              {[5, 10].map(t => (
-                <button key={t} onClick={() => setGameLength(t)}
-                  style={{ padding: "6px 12px", background: gameLength === t ? "#ff4444" : "#111", color: gameLength === t ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                  {t} min
-                </button>
-              ))}
-              {[15, 20].map(t => (
-                <button key={t} onClick={() => setGameLength(t)}
-                  style={{ padding: "6px 12px", background: gameLength === t ? "#facc15" : "#111", color: gameLength === t ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                  {t} min 💛
-                </button>
-              ))}
+            <div style={{ marginBottom: 14 }}>
+              <GameLengthBlock small currentRoomCode={roomCode || roomCodeRef.current} />
             </div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Difficulty</p>
@@ -250,15 +323,38 @@ export default function Lobby({ onGameStart }) {
               ))}
             </div>
 
+            <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Max players</p>
+            <div style={{ display: "flex", gap: 5, marginBottom: 14, flexWrap: "wrap" }}>
+              {[2, 3, 4].map(n => (
+                <button key={n} onClick={() => setMaxPlayers(n)}
+                  style={{ padding: "6px 12px", background: maxPlayers === n ? "#ff4444" : "#111", color: maxPlayers === n ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                  {n}
+                </button>
+              ))}
+              <button onClick={() => maxPlayers === 5 ? setMaxPlayers(5) : goToStripe("player5", roomCode || roomCodeRef.current)}
+                style={{ padding: "6px 12px", background: maxPlayers === 5 ? "#facc15" : "#111", color: maxPlayers === 5 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                5 {maxPlayers < 5 ? "💛" : ""}
+              </button>
+              <button onClick={() => maxPlayers === 6 ? setMaxPlayers(6) : goToStripe("player6", roomCode || roomCodeRef.current)}
+                style={{ padding: "6px 12px", background: maxPlayers === 6 ? "#facc15" : "#111", color: maxPlayers === 6 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                6 {maxPlayers < 6 ? "💛" : ""}
+              </button>
+            </div>
+
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Saboteurs</p>
-            <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" }}>
               {[0, 1, 2, 3].map(n => (
                 <button key={n} onClick={() => setNumSaboteurs(n)}
                   style={{ padding: "6px 12px", background: numSaboteurs === n ? "#ff4444" : "#111", color: numSaboteurs === n ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
                   {n}
                 </button>
               ))}
+              <button onClick={() => goToStripe("saboteur", roomCode || roomCodeRef.current)}
+                style={{ padding: "6px 12px", background: "#111", color: "#ff4444", border: "0.5px solid #ff444430", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                + Extra 💛 ($0.99)
+              </button>
             </div>
+            <p style={{ fontSize: 10, color: "#444", marginBottom: 14 }}>Add an extra saboteur beyond the normal limit</p>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Scenario</p>
             <div style={{ background: "#111", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
@@ -271,11 +367,11 @@ export default function Lobby({ onGameStart }) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              <button onClick={handleReroll} disabled={rerollsUsed >= 1}
-                style={{ flex: 1, padding: "7px", background: rerollsUsed === 0 ? "#222" : "#111", color: rerollsUsed === 0 ? "#aaa" : "#444", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: rerollsUsed === 0 ? "pointer" : "default" }}>
-                {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll used"}
+              <button onClick={handleReroll}
+                style={{ flex: 1, padding: "7px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
+                {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll again ($0.99)"}
               </button>
-              <button onClick={() => setShowScenarioPicker(true)}
+              <button onClick={() => goToStripe("scenario", roomCode || roomCodeRef.current)}
                 style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
                 💛 Pick mine ($0.99)
               </button>
@@ -304,7 +400,7 @@ export default function Lobby({ onGameStart }) {
     );
   }
 
-  // Main menu
+  // ─── Main menu ──────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 440, margin: "0 auto", padding: "2.5rem 1.5rem", textAlign: "center" }}>
       <div style={{ fontSize: 44, marginBottom: 8 }}>💀</div>
@@ -336,30 +432,10 @@ export default function Lobby({ onGameStart }) {
         </div>
       )}
 
-      {/* Solo mode */}
+      {/* ── Solo mode ── */}
       {mode === "solo" && (
         <div style={{ textAlign: "left" }}>
-          <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Startup scenario</p>
-              <span style={{ fontSize: 9, color: TAG_COLORS[scenario.tag], background: "#111", padding: "2px 6px", borderRadius: 4 }}>{scenario.tag}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 26 }}>{scenario.emoji}</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
-            </div>
-            <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={handleReroll} disabled={rerollsUsed >= 1}
-                style={{ flex: 1, padding: "7px", background: rerollsUsed === 0 ? "#222" : "#111", color: rerollsUsed === 0 ? "#aaa" : "#444", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: rerollsUsed === 0 ? "pointer" : "default" }}>
-                {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll used"}
-              </button>
-              <button onClick={() => setShowScenarioPicker(true)}
-                style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
-                💛 Pick mine ($0.99)
-              </button>
-            </div>
-          </div>
+          <ScenarioBlock />
 
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Difficulty</p>
@@ -389,20 +465,7 @@ export default function Lobby({ onGameStart }) {
 
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Game length</p>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[5, 10].map(t => (
-                <button key={t} onClick={() => setGameLength(t)}
-                  style={{ padding: "7px 14px", background: gameLength === t ? "#ff4444" : "#111", color: gameLength === t ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>
-                  {t} min
-                </button>
-              ))}
-              {[15, 20].map(t => (
-                <button key={t} onClick={() => setGameLength(t)}
-                  style={{ padding: "7px 14px", background: gameLength === t ? "#facc15" : "#111", color: gameLength === t ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 12 }}>
-                  {t} min 💛
-                </button>
-              ))}
-            </div>
+            <GameLengthBlock />
           </div>
 
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 14 }}>
@@ -423,48 +486,17 @@ export default function Lobby({ onGameStart }) {
         </div>
       )}
 
-      {/* Host mode */}
+      {/* ── Host mode ── */}
       {mode === "host" && !roomData && (
         <div style={{ textAlign: "left" }}>
-          <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Scenario</p>
-              <span style={{ fontSize: 9, color: TAG_COLORS[scenario.tag], background: "#111", padding: "2px 6px", borderRadius: 4 }}>{scenario.tag}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <span style={{ fontSize: 26 }}>{scenario.emoji}</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
-            </div>
-            <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={handleReroll} disabled={rerollsUsed >= 1}
-                style={{ flex: 1, padding: "7px", background: rerollsUsed === 0 ? "#222" : "#111", color: rerollsUsed === 0 ? "#aaa" : "#444", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: rerollsUsed === 0 ? "pointer" : "default" }}>
-                {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll used"}
-              </button>
-              <button onClick={() => setShowScenarioPicker(true)}
-                style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
-                💛 Pick mine ($0.99)
-              </button>
-            </div>
-          </div>
+          <ScenarioBlock />
 
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Settings</p>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Game length</p>
-            <div style={{ display: "flex", gap: 5, marginBottom: 14, flexWrap: "wrap" }}>
-              {[5, 10].map(t => (
-                <button key={t} onClick={() => setGameLength(t)}
-                  style={{ padding: "6px 12px", background: gameLength === t ? "#ff4444" : "#111", color: gameLength === t ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                  {t} min
-                </button>
-              ))}
-              {[15, 20].map(t => (
-                <button key={t} onClick={() => setGameLength(t)}
-                  style={{ padding: "6px 12px", background: gameLength === t ? "#facc15" : "#111", color: gameLength === t ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                  {t} min 💛
-                </button>
-              ))}
+            <div style={{ marginBottom: 14 }}>
+              <GameLengthBlock small />
             </div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Difficulty</p>
@@ -478,30 +510,37 @@ export default function Lobby({ onGameStart }) {
             </div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Max players</p>
-            <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 5, marginBottom: 14, flexWrap: "wrap" }}>
               {[2, 3, 4].map(n => (
                 <button key={n} onClick={() => setMaxPlayers(n)}
                   style={{ padding: "6px 12px", background: maxPlayers === n ? "#ff4444" : "#111", color: maxPlayers === n ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
                   {n}
                 </button>
               ))}
-              {[5, 6].map(n => (
-                <button key={n} onClick={() => setMaxPlayers(n)}
-                  style={{ padding: "6px 12px", background: maxPlayers === n ? "#facc15" : "#111", color: maxPlayers === n ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                  {n} 💛
-                </button>
-              ))}
+              <button onClick={() => maxPlayers >= 5 ? setMaxPlayers(5) : goToStripe("player5")}
+                style={{ padding: "6px 12px", background: maxPlayers === 5 ? "#facc15" : "#111", color: maxPlayers === 5 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                5 {maxPlayers < 5 ? "💛" : ""}
+              </button>
+              <button onClick={() => maxPlayers >= 6 ? setMaxPlayers(6) : goToStripe("player6")}
+                style={{ padding: "6px 12px", background: maxPlayers === 6 ? "#facc15" : "#111", color: maxPlayers === 6 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                6 {maxPlayers < 6 ? "💛" : ""}
+              </button>
             </div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Saboteurs</p>
-            <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" }}>
               {[0, 1, 2, 3].map(n => (
                 <button key={n} onClick={() => setNumSaboteurs(n)}
                   style={{ padding: "6px 12px", background: numSaboteurs === n ? "#ff4444" : "#111", color: numSaboteurs === n ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
                   {n}
                 </button>
               ))}
+              <button onClick={() => goToStripe("saboteur")}
+                style={{ padding: "6px 12px", background: "#111", color: "#ff4444", border: "0.5px solid #ff444430", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
+                + Extra 💛 ($0.99)
+              </button>
             </div>
+            <p style={{ fontSize: 10, color: "#444", marginBottom: 14 }}>Add an extra saboteur beyond the normal limit</p>
 
             <button onClick={() => setRanked(!ranked)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
               <p style={{ fontSize: 11, color: ranked ? "#facc15" : "#555" }}>{ranked ? "🏆 Ranked mode ON" : "🏆 Enable ranked mode"}</p>
@@ -519,7 +558,7 @@ export default function Lobby({ onGameStart }) {
         </div>
       )}
 
-      {/* Join mode */}
+      {/* ── Join mode ── */}
       {mode === "join" && (
         <div>
           <input value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} placeholder="Room code" maxLength={4}

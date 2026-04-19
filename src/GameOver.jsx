@@ -51,6 +51,18 @@ const DEATH_REASONS = {
   default: { title: "💀 Game Over", msg: "It happens.", color: "#888" },
 };
 
+// ─── Stripe Payment Links ───────────────────────────────────────────
+const STRIPE = {
+  leaderboard: "https://buy.stripe.com/aFafZg723g1k5EGetG8Zq04",
+  debrief:     "https://buy.stripe.com/9B600i7235mGaZ02KY8Zq03",
+  badge:       "https://buy.stripe.com/5kQ9AS3PRaH05EG5Xa8Zq02",
+};
+
+function goToStripe(key) {
+  const successUrl = `https://survival-startup.netlify.app/?paid=${key}`;
+  window.location.href = `${STRIPE[key]}?success_url=${encodeURIComponent(successUrl)}`;
+}
+
 function getTitle(stats) {
   for (const t of TITLES) {
     try { if (t.condition(stats)) return t; } catch {}
@@ -76,7 +88,6 @@ function getScore(stats) {
 
 export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
   const [paid, setPaid] = useState(false);
-  const [showPaywall, setShowPaywall] = useState(false);
   const [showContactForm, setShowContactForm] = useState(false);
   const [contactName, setContactName] = useState(playerData?.name || "");
   const [contactEmail, setContactEmail] = useState("");
@@ -84,11 +95,7 @@ export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
   const [showAIDebrief, setShowAIDebrief] = useState(false);
   const [debriefText, setDebriefText] = useState("");
   const [debriefLoading, setDebriefLoading] = useState(false);
-
-  useEffect(() => {
-    if (["survived", "acquired"].includes(stats.reason)) sounds.win();
-    else sounds.lose();
-  }, []);
+  const [badgeUnlocked, setBadgeUnlocked] = useState(false);
 
   const outcome = DEATH_REASONS[stats.reason] || DEATH_REASONS.default;
   const titleObj = getTitle(stats);
@@ -96,6 +103,31 @@ export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
   const explanation = titleObj.explanation;
   const score = getScore(stats);
   const fakeRank = Math.floor(Math.random() * 12) + 2;
+
+  useEffect(() => {
+    if (["survived", "acquired"].includes(stats.reason)) sounds.win();
+    else sounds.lose();
+  }, []);
+
+  // ─── Handle return from Stripe ──────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paidFeature = params.get("paid");
+    if (!paidFeature) return;
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (paidFeature === "leaderboard") {
+      setPaid(true);
+      setShowContactForm(true);
+    }
+    if (paidFeature === "debrief") {
+      setShowAIDebrief(true);
+      fetchAIDebrief();
+    }
+    if (paidFeature === "badge") {
+      setBadgeUnlocked(true);
+    }
+  }, []);
 
   async function fetchAIDebrief() {
     setDebriefLoading(true);
@@ -129,9 +161,10 @@ Give a personalized debrief: what they did well, what killed them, and one speci
     if (!contactEmail.trim()) return;
     // In production: save to Firebase
     setContactSubmitted(true);
-    setPaid(true);
     setShowContactForm(false);
   }
+
+  const isValidEmail = (e) => e.trim() && e.includes("@") && e.includes(".") && e.indexOf("@") < e.lastIndexOf(".");
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", padding: "2rem 1.5rem", textAlign: "center" }}>
@@ -207,60 +240,43 @@ Give a personalized debrief: what they did well, what killed them, and one speci
               <p style={{ color: "#facc15", fontSize: 13, fontWeight: 700, marginBottom: 3 }}>🏆 You ranked #{fakeRank} on the leaderboard</p>
               <p style={{ color: "#555", fontSize: 11 }}>Lock in your score to appear publicly — and be eligible for prizes.</p>
             </div>
-            <button onClick={() => setShowPaywall(true)}
+            <button onClick={() => goToStripe("leaderboard")}
               style={{ width: "100%", padding: "12px", background: "#facc15", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               🏆 Lock In Score — $1.99
             </button>
           </div>
         ) : (
-          <div style={{ background: "#0a1a0a", border: "0.5px solid #4ade8030", borderRadius: 8, padding: "10px" }}>
-            <p style={{ color: "#4ade80", fontSize: 13, fontWeight: 700 }}>✓ Score locked in! You're #{fakeRank} 🎉</p>
-            {contactSubmitted && <p style={{ color: "#555", fontSize: 11, marginTop: 4 }}>We'll contact you if you win a prize.</p>}
+          <div>
+            <div style={{ background: "#0a1a0a", border: "0.5px solid #4ade8030", borderRadius: 8, padding: "10px", marginBottom: contactSubmitted ? 0 : 10 }}>
+              <p style={{ color: "#4ade80", fontSize: 13, fontWeight: 700 }}>✓ Score locked in! You're #{fakeRank} 🎉</p>
+              {contactSubmitted && <p style={{ color: "#555", fontSize: 11, marginTop: 4 }}>We'll contact you if you win a prize.</p>}
+            </div>
+
+            {/* Contact form shown after payment redirect */}
+            {showContactForm && !contactSubmitted && (
+              <div style={{ marginTop: 10, textAlign: "left" }}>
+                <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Enter your details to be eligible for prizes:</p>
+                <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Your name"
+                  style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+                <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Your email address" type="email"
+                  style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
+                <p style={{ fontSize: 10, color: "#444", marginBottom: 10 }}>Your email is only used to contact you about prizes. We don't spam.</p>
+                <button onClick={handleContactSubmit} disabled={!isValidEmail(contactEmail)}
+                  style={{ width: "100%", padding: "11px", background: isValidEmail(contactEmail) ? "#facc15" : "#222", color: isValidEmail(contactEmail) ? "#000" : "#555", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isValidEmail(contactEmail) ? "pointer" : "default" }}>
+                  Confirm Details →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Paywall + contact form */}
-      {showPaywall && !paid && (
-        <div style={{ background: "#1a1a1a", border: "1px solid #facc1540", borderRadius: 14, padding: "1.5rem", marginBottom: 14, textAlign: "left" }}>
-          <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6, textAlign: "center" }}>Lock in your score</p>
-          <p style={{ color: "#555", fontSize: 12, marginBottom: 14, textAlign: "center" }}>Your rank #{fakeRank} will appear on the public leaderboard. If prizes are awarded, we'll need your contact info.</p>
-
-          {!showContactForm ? (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setShowContactForm(true)}
-                style={{ flex: 1, padding: "12px", background: "#facc15", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                Pay $1.99 + Enter Details
-              </button>
-              <button onClick={() => setShowPaywall(false)}
-                style={{ flex: 1, padding: "12px", background: "#222", color: "#666", border: "none", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
-                Maybe later
-              </button>
-            </div>
-          ) : (
-            <div>
-              <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>Enter your details to lock in your score and be eligible for prizes:</p>
-              <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="Your name"
-                style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 8 }} />
-              <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Your email address" type="email"
-                style={{ width: "100%", padding: "10px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
-              <p style={{ fontSize: 10, color: "#444", marginBottom: 10 }}>Your email is only used to contact you about prizes. We don't spam.</p>
-              <button onClick={handleContactSubmit} disabled={!contactEmail.trim() || !contactEmail.includes("@") || !contactEmail.includes(".") || contactEmail.indexOf("@") > contactEmail.lastIndexOf(".")}
-                style={{ width: "100%", padding: "11px", background: contactEmail.trim() ? "#facc15" : "#222", color: contactEmail.trim() ? "#000" : "#555", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: contactEmail.trim() ? "pointer" : "default" }}>
-                Confirm & Lock Score →
-              </button>
-            </div>
-          )}
-          <p style={{ color: "#333", fontSize: 10, marginTop: 10, textAlign: "center" }}>Secure checkout via Stripe</p>
-        </div>
-      )}
 
       {/* AI Debrief */}
       <div style={{ background: "#111", border: "0.5px solid #a78bfa30", borderRadius: 10, padding: "12px", marginBottom: 10 }}>
         <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🧠 AI Business Debrief</p>
         <p style={{ fontSize: 11, color: "#555", marginBottom: 10 }}>Get a personalized analysis of your decisions, what you did right, and what killed you.</p>
         {!showAIDebrief ? (
-          <button onClick={() => { setShowAIDebrief(true); fetchAIDebrief(); }}
+          <button onClick={() => goToStripe("debrief")}
             style={{ width: "100%", padding: "9px", background: "#a78bfa20", color: "#a78bfa", border: "0.5px solid #a78bfa40", borderRadius: 8, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
             Get AI Debrief — $1.99
           </button>
@@ -275,10 +291,17 @@ Give a personalized debrief: what they did well, what killed them, and one speci
       <div style={{ background: "#111", border: "0.5px solid #60a5fa30", borderRadius: 10, padding: "12px", marginBottom: 16 }}>
         <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🎖️ Ranked Badge</p>
         <p style={{ fontSize: 11, color: "#555", marginBottom: 8 }}>A shareable badge showing your rank, title, and difficulty level.</p>
-        <button onClick={() => alert("Ranked Badge coming soon! This will generate a shareable image with your rank, title, and difficulty level. Check back after the hackathon for the full version.")}
-          style={{ width: "100%", padding: "9px", background: "#60a5fa20", color: "#60a5fa", border: "0.5px solid #60a5fa40", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
-          Get Ranked Badge — $2.99 (coming soon)
-        </button>
+        {!badgeUnlocked ? (
+          <button onClick={() => goToStripe("badge")}
+            style={{ width: "100%", padding: "9px", background: "#60a5fa20", color: "#60a5fa", border: "0.5px solid #60a5fa40", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+            Get Ranked Badge — $2.99
+          </button>
+        ) : (
+          <div style={{ background: "#0a0f1a", border: "0.5px solid #60a5fa40", borderRadius: 8, padding: "10px" }}>
+            <p style={{ color: "#60a5fa", fontSize: 13, fontWeight: 700, marginBottom: 4 }}>✓ Badge unlocked!</p>
+            <p style={{ color: "#555", fontSize: 11 }}>Badge generation coming soon — we'll notify you when it's ready.</p>
+          </div>
+        )}
       </div>
 
       {/* Shareable result card */}
