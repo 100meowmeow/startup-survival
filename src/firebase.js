@@ -1,5 +1,8 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, increment, update, get, onValue, push, serverTimestamp } from "firebase/database";
+import {
+  getDatabase, ref, increment, update, get, onValue,
+  push, serverTimestamp, query, orderByChild, limitToLast
+} from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD2-bZtW3hb3PG2JyV37oft9kNdLGTAk9w",
@@ -14,7 +17,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
 
-// ─── Player count (unchanged) ─────────────────────────────────────
+// ─── Player count ─────────────────────────────────────────────────
 export async function incrementPlayerCount() {
   try {
     await update(ref(db, "stats"), { totalPlayers: increment(1) });
@@ -29,29 +32,15 @@ export async function getPlayerCount() {
 }
 
 // ─── Multiplayer game state ───────────────────────────────────────
-
-/**
- * Host calls this once when the game starts to create the shared state.
- */
 export async function initGameState(roomCode, startMoney) {
   try {
     await update(ref(db, `rooms/${roomCode}/gameState`), {
-      money: startMoney,
-      users: 0,
-      morale: 100,
-      lastUpdatedBy: null,
-      lastAction: null,
+      money: startMoney, users: 0, morale: 100,
+      lastUpdatedBy: null, lastAction: null,
     });
-  } catch (e) {
-    console.error("initGameState failed:", e);
-  }
+  } catch (e) { console.error("initGameState failed:", e); }
 }
 
-/**
- * Any player calls this to apply a stat delta to the shared game state.
- * Uses Firebase transactions via increment() so concurrent writes don't clobber each other.
- * moneyDelta, usersDelta, moraleDelta are numbers (positive or negative).
- */
 export async function applyGameStateDelta(roomCode, { moneyDelta = 0, usersDelta = 0, moraleDelta = 0 }, playerName, actionKey) {
   try {
     const updates = {};
@@ -61,56 +50,121 @@ export async function applyGameStateDelta(roomCode, { moneyDelta = 0, usersDelta
     updates[`rooms/${roomCode}/gameState/lastUpdatedBy`] = playerName;
     updates[`rooms/${roomCode}/gameState/lastAction`] = actionKey || null;
     await update(ref(db), updates);
-  } catch (e) {
-    console.error("applyGameStateDelta failed:", e);
-  }
+  } catch (e) { console.error("applyGameStateDelta failed:", e); }
 }
 
-/**
- * Subscribe to real-time game state changes.
- * callback receives { money, users, morale } whenever any player changes a stat.
- * Returns unsubscribe function — call it on component unmount.
- */
 export function subscribeToGameState(roomCode, callback) {
   const r = ref(db, `rooms/${roomCode}/gameState`);
-  const unsub = onValue(r, (snap) => {
-    if (snap.exists()) callback(snap.val());
-  });
-  return unsub;
+  return onValue(r, (snap) => { if (snap.exists()) callback(snap.val()); });
 }
 
 // ─── Activity feed ────────────────────────────────────────────────
-
-/**
- * Write an activity to the shared feed.
- * e.g. "Roshan sent cold emails → +200 users"
- */
 export async function addFeedItem(roomCode, playerName, role, actionKey, statSummary) {
   try {
     await push(ref(db, `rooms/${roomCode}/feed`), {
-      playerName,
-      role,
-      actionKey,
-      statSummary,   // e.g. "+200 users · +$500"
-      ts: serverTimestamp(),
+      playerName, role, actionKey, statSummary, ts: serverTimestamp(),
     });
+  } catch (e) { console.error("addFeedItem failed:", e); }
+}
+
+export function subscribeToFeed(roomCode, callback) {
+  const r = ref(db, `rooms/${roomCode}/feed`);
+  return onValue(r, (snap) => {
+    if (!snap.exists()) { callback([]); return; }
+    const items = [];
+    snap.forEach(child => items.push({ id: child.key, ...child.val() }));
+    callback(items.reverse().slice(0, 20));
+  });
+}
+
+// ─── Leaderboard ──────────────────────────────────────────────────
+
+/**
+ * Write a score to Firebase immediately after game ends.
+ * Starts as unlisted — only flips public after Stripe payment.
+ * Returns the generated scoreId so GameOver can store it for later unlocking.
+ */
+export async function submitScore({ playerName, score, title, role, difficulty, scenario, reason, money, users, morale }) {
+  try {
+    const entry = {
+      playerName,
+      score,
+      title,
+      role,
+      difficulty,
+      scenario,
+      reason,
+      money,
+      users,
+      morale,
+      unlisted: true,       // hidden from public board until paid
+      ts: serverTimestamp(),
+    };
+    const newRef = await push(ref(db, "leaderboard"), entry);
+    return newRef.key;      // return scoreId for later unlocking
   } catch (e) {
-    console.error("addFeedItem failed:", e);
+    console.error("submitScore failed:", e);
+    return null;
   }
 }
 
 /**
- * Subscribe to the activity feed.
- * callback receives an array of feed items sorted newest-first.
- * Returns unsubscribe function.
+ * Flip a score from unlisted to public, and attach contact info.
+ * Called after Stripe payment redirect with ?paid=leaderboard.
  */
-export function subscribeToFeed(roomCode, callback) {
-  const r = ref(db, `rooms/${roomCode}/feed`);
-  const unsub = onValue(r, (snap) => {
-    if (!snap.exists()) { callback([]); return; }
-    const items = [];
-    snap.forEach(child => items.push({ id: child.key, ...child.val() }));
-    callback(items.reverse().slice(0, 20)); // newest first, cap at 20
-  });
-  return unsub;
+export async function unlockScore(scoreId, { contactName, contactEmail }) {
+  try {
+    await update(ref(db, `leaderboard/${scoreId}`), {
+      unlisted: false,
+      contactName,
+      contactEmail,
+    });
+  } catch (e) { console.error("unlockScore failed:", e); }
+}
+
+/**
+ * Fetch top 20 public scores (unlisted: false), ordered by score descending.
+ * Firebase Realtime DB doesn't support filtering + ordering in one query,
+ * so we fetch the top 200 by score and filter client-side.
+ */
+export async function getTopScores() {
+  try {
+    const q = query(
+      ref(db, "leaderboard"),
+      orderByChild("score"),
+      limitToLast(200)
+    );
+    const snap = await get(q);
+    if (!snap.exists()) return [];
+    const entries = [];
+    snap.forEach(child => {
+      const val = child.val();
+      if (!val.unlisted) entries.push({ id: child.key, ...val });
+    });
+    // Sort descending by score, return top 20
+    return entries.sort((a, b) => b.score - a.score).slice(0, 20);
+  } catch (e) {
+    console.error("getTopScores failed:", e);
+    return [];
+  }
+}
+
+/**
+ * Get the real rank of a score among ALL scores (including unlisted).
+ * Used to show the player their private rank on the game over screen.
+ */
+export async function getRealRank(score) {
+  try {
+    const snap = await get(ref(db, "leaderboard"));
+    if (!snap.exists()) return 1;
+    let rank = 1;
+    snap.forEach(child => {
+      const val = child.val();
+      if ((val.score || 0) > score) rank++;
+    });
+    return rank;
+  } catch (e) {
+    console.error("getRealRank failed:", e);
+    return null;
+  }
 }
