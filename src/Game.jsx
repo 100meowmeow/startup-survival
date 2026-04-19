@@ -94,6 +94,18 @@ function PitchTimer({ onExpire }) {
   );
 }
 
+// ─── Determine if an activity result is a net positive or failure ──────────
+function isPositiveResult(result) {
+  if (!result || typeof result !== "object") return false;
+  const money = result.money || 0;
+  const users = result.users || 0;
+  const morale = result.morale || 0;
+  // A result is positive if it has at least one positive stat and no large negatives
+  const hasPositive = money > 0 || users > 0 || morale > 0;
+  const hasNegative = money < -500 || users < -50 || morale < -3;
+  return hasPositive && !hasNegative;
+}
+
 export default function Game({ gameConfig, playerData, onGameOver }) {
   const difficulty = DIFFICULTY_SETTINGS[gameConfig.difficulty || "founder"];
   const duration = GAME_DURATIONS[gameConfig.gameLength] || 600;
@@ -135,7 +147,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
   const stateRef = useRef({});
   stateRef.current = { money, users, morale, gameActive, stacks, reputation, passiveRevenue };
 
-  //Player Count
   useEffect(() => {
     incrementPlayerCount();
   }, []);
@@ -298,7 +309,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     const quirkMult = effect.money < 0 || effect.users < 0 || effect.morale < 0
       ? quirk.badMultiplier : quirk.goodMultiplier;
 
-    // Apply personality wildcard
     const isWildcard = quirk.id === "wildcard" && Math.random() < 0.2;
     const finalEffect = isWildcard ? {
       money: effect.money ? -effect.money : 0,
@@ -306,7 +316,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       morale: effect.morale ? -effect.morale : 0,
     } : effect;
 
-    // Apply lucky quirk
     const isLucky = quirk.id === "lucky" && Math.random() < 0.3;
     const luckyEffect = isLucky ? {
       money: Math.abs(finalEffect.money || 0),
@@ -326,7 +335,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     setUsers(newUsers);
     setMorale(newMorale);
 
-    // Show stat change
     const changes = [];
     if (moneyChange !== 0) changes.push(`${moneyChange > 0 ? "+" : ""}$${Math.abs(moneyChange).toLocaleString()}`);
     if (userChange !== 0) changes.push(`${userChange > 0 ? "+" : ""}${userChange} users`);
@@ -337,7 +345,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       setTimeout(() => setRecentStatChange(null), 3000);
     }
 
-    // Update reputation
     if (luckyEffect.money > 5000) setReputation(prev => ({ ...prev, investor: Math.min(100, prev.investor + 5) }));
     if (luckyEffect.users > 500) setReputation(prev => ({ ...prev, customer: Math.min(100, prev.customer + 3) }));
     if (luckyEffect.morale > 10) setReputation(prev => ({ ...prev, press: Math.min(100, prev.press + 2) }));
@@ -415,11 +422,21 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     setTimeout(() => setFeedback(null), 1500);
   }
 
+  // ─── KEY FIX: Activity completion handler ────────────────────────
+  // Activities return their own result objects. We must NOT blindly pass
+  // positive values from a "failed" activity through as gains.
+  // The Activity components already return negative or zero stats on failure.
+  // The bug was that some activities return small positives (e.g. {users: 30})
+  // even on failure — this is intentional consolation in Activity.jsx.
+  // The real bug was applyEffect applying goodMultiplier to these small positives,
+  // amplifying them. We now apply the consequenceMultiplier to ALL activity results
+  // but skip quirk multipliers so the raw activity result goes through unchanged.
   function handleActivityComplete(result) {
     if (!activeActivity) return;
     const { key, cooldownSecs, stackKey } = activeActivity;
     setActiveActivity(null);
     if (!result) return;
+
     if (result.defect) {
       setDefected(true);
       applyEffect({
@@ -429,20 +446,66 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       addLog("💀 You defected!");
       setFeedback("😈 You defected! Starting rival company...");
       setTimeout(() => setFeedback(null), 3000);
-    } else {
-      if (Object.keys(result).length > 0) {
-        applyEffect(result);
-      }
+    } else if (Object.keys(result).length > 0) {
+      // ── Apply the result directly without quirk multiplier distortion ──
+      // Activities already encode failure as negatives or small numbers.
+      // We just apply them as-is and let applyEffect handle difficulty scaling
+      // for negative values only.
+      const cleanResult = {
+        money: result.money || 0,
+        users: result.users || 0,
+        morale: result.morale || 0,
+      };
+
+      // For activity results, only apply difficulty multiplier to negatives.
+      // Positives go through at face value (Activity.jsx already calibrated them).
+      const s = stateRef.current;
+      const m = difficulty.consequenceMultiplier;
+
+      const moneyChange = cleanResult.money < 0
+        ? Math.round(cleanResult.money * m)
+        : cleanResult.money;
+      const userChange = cleanResult.users < 0
+        ? Math.round(cleanResult.users * m)
+        : cleanResult.users;
+      const moraleChange = cleanResult.morale < 0
+        ? Math.round(cleanResult.morale * m)
+        : cleanResult.morale;
+
+      const newMoney = Math.max(0, s.money + moneyChange);
+      const newUsers = Math.max(0, s.users + userChange);
+      const newMorale = Math.min(100, Math.max(quirk.moraleFloor, s.morale + moraleChange));
+
+      setMoney(newMoney);
+      setUsers(newUsers);
+      setMorale(newMorale);
+
+      // Show what changed
       const changes = [];
-      if (result.money) changes.push(`${result.money > 0 ? "+" : ""}$${Math.abs(result.money).toLocaleString()}`);
-      if (result.users) changes.push(`${result.users > 0 ? "+" : ""}${result.users} users`);
-      if (result.morale) changes.push(`${result.morale > 0 ? "+" : ""}${result.morale}% morale`);
+      if (moneyChange !== 0) changes.push(`${moneyChange > 0 ? "+" : ""}$${Math.abs(moneyChange).toLocaleString()}`);
+      if (userChange !== 0) changes.push(`${userChange > 0 ? "+" : ""}${userChange} users`);
+      if (moraleChange !== 0) changes.push(`${moraleChange > 0 ? "+" : ""}${moraleChange}% morale`);
+
+      const positive = isPositiveResult(cleanResult);
       if (changes.length > 0) {
-        setActivityResult({ key, changes: changes.join(" · "), positive: (result.money || 0) >= 0 && (result.users || 0) >= 0 });
-        setTimeout(() => setActivityResult(null), 4000);
+        setActivityResult({ key, changes: changes.join(" · "), positive });
+        setRecentStatChange({ text: changes.join(" · "), positive });
+        setTimeout(() => { setActivityResult(null); setRecentStatChange(null); }, 4000);
       }
+
+      // Reputation updates
+      if (moneyChange > 5000) setReputation(prev => ({ ...prev, investor: Math.min(100, prev.investor + 5) }));
+      if (userChange > 500) setReputation(prev => ({ ...prev, customer: Math.min(100, prev.customer + 3) }));
+      if (moraleChange > 10) setReputation(prev => ({ ...prev, press: Math.min(100, prev.press + 2) }));
+      if (moneyChange < -5000) setReputation(prev => ({ ...prev, investor: Math.max(0, prev.investor - 5) }));
+      if (userChange < -200) setReputation(prev => ({ ...prev, customer: Math.max(0, prev.customer - 5) }));
+
+      // Check end conditions
+      if (newMoney <= 0) { endGame("bankrupt"); return; }
+      if (newMorale <= 0) { endGame("morale"); return; }
     }
-    addLog(`✓ ${key}: ${result.users ? (result.users > 0 ? "+" : "") + result.users + " users " : ""}${result.money ? (result.money > 0 ? "+" : "") + "$" + Math.abs(result.money).toLocaleString() : ""}`);
+
+    addLog(`${isPositiveResult(result) ? "✓" : "✗"} ${key}: ${result.users ? (result.users > 0 ? "+" : "") + result.users + " users " : ""}${result.money ? (result.money > 0 ? "+" : "") + "$" + Math.abs(result.money).toLocaleString() : ""}`);
     startCooldown(key, cooldownSecs);
     if (stackKey) addStack(stackKey);
   }
@@ -597,7 +660,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     ],
   };
 
-  // Solo revenue actions for non-sales roles
   const soloRevenueActions = {
     "CEO": { key: "Close Deal", emoji: "🤝", cooldown: 90, effect: { money: 3000 }, stack: "solo_revenue", desc: "CEO closes a deal directly." },
     "CFO": { key: "Cost Cutting", emoji: "✂️", cooldown: 60, effect: { money: 2000 }, stack: "solo_revenue", desc: "Cut costs, save money." },
@@ -914,7 +976,6 @@ function ActionButton({ action, cooldowns, stacks, onPress, roleColor, difficult
   const cd = cooldowns[action.key] || 0;
   const stackCount = stacks[action.stack] || 0;
   const onCooldown = cd > 0;
-  const diffMult = { intern: 1.5, founder: 1.0, veteran: 0.8, shark: 0.6 }[difficulty] || 1.0;
   return (
     <button onClick={onPress} disabled={onCooldown}
       style={{ background: onCooldown ? "#0a0a0a" : "#111", border: `0.5px solid ${onCooldown ? "#1a1a1a" : "#222"}`, borderRadius: 8, padding: "10px", cursor: onCooldown ? "default" : "pointer", textAlign: "left", opacity: onCooldown ? 0.4 : 1 }}>

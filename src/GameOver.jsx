@@ -278,7 +278,7 @@ Give a personalized debrief: what they did well, what killed them, and one speci
         {!showAIDebrief ? (
           <button onClick={() => goToStripe("debrief")}
             style={{ width: "100%", padding: "9px", background: "#a78bfa20", color: "#a78bfa", border: "0.5px solid #a78bfa40", borderRadius: 8, fontSize: 12, cursor: "pointer", fontWeight: 500 }}>
-            Get AI Debrief — $1.99
+            Get AI Debrief — $2.99
           </button>
         ) : debriefLoading ? (
           <p style={{ color: "#888", fontSize: 12, textAlign: "center" }}>Analyzing your performance...</p>

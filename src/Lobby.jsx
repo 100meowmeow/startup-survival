@@ -52,7 +52,7 @@ const DIFFICULTY_INFO = {
   shark:   { label: "🦈 Shark",   desc: "Brutal. Cursed luck. Beatable with skill.", color: "#ff4444" },
 };
 
-// ─── Stripe Payment Links ───────────────────────────────────────────
+// ─── Stripe Payment Links ────────────────────────────────────────────
 const STRIPE = {
   reroll:   "https://buy.stripe.com/6oUfZg5XZeXgebc3P28Zq07",
   scenario: "https://buy.stripe.com/8x2bJ09ab3ey1oq3P28Zq06",
@@ -62,9 +62,8 @@ const STRIPE = {
   min20:    "https://buy.stripe.com/28E4gy8678ySd781GU8Zq05",
 };
 
-function goToStripe(key, roomCode = "") {
-  const successUrl = `https://survival-startup.netlify.app/?paid=${key}${roomCode ? `&room=${roomCode}` : ""}`;
-  window.location.href = `${STRIPE[key]}?success_url=${encodeURIComponent(successUrl)}`;
+function goToStripe(key) {
+  window.location.href = STRIPE[key];
 }
 
 function generateRoomCode() {
@@ -89,8 +88,10 @@ function assignQuirk() {
   return PERSONALITY_QUIRKS[Math.floor(Math.random() * PERSONALITY_QUIRKS.length)].id;
 }
 
-function randomScenario() {
-  return SCENARIOS[Math.floor(Math.random() * SCENARIOS.length)];
+// Always returns a different scenario than the one currently shown
+function randomScenario(excludeId = null) {
+  const pool = excludeId ? SCENARIOS.filter(s => s.id !== excludeId) : SCENARIOS;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 export default function Lobby({ onGameStart }) {
@@ -122,38 +123,34 @@ export default function Lobby({ onGameStart }) {
     getPlayerCount().then(count => setGamesPlayed(count));
   }, []);
 
-  // ─── Handle return from Stripe ──────────────────────────────────
+  // ─── Handle return from Stripe ───────────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const paidFeature = params.get("paid");
     const returnedRoom = params.get("room");
     if (!paidFeature) return;
 
-    // Clean the URL so refreshing doesn't re-trigger
     window.history.replaceState({}, "", window.location.pathname);
 
     if (paidFeature === "reroll") {
-      setScenario(randomScenario());
+      setScenario(prev => randomScenario(prev.id));
       setRerollsUsed(0);
     }
-    if (paidFeature === "scenario") {
-      setShowScenarioPicker(true);
-    }
-    if (paidFeature === "saboteur") {
-      setNumSaboteurs(prev => Math.min(prev + 1, 3));
-    }
+    if (paidFeature === "scenario") setShowScenarioPicker(true);
+    if (paidFeature === "saboteur") setNumSaboteurs(prev => Math.min(prev + 1, 3));
     if (paidFeature === "player5") setMaxPlayers(5);
     if (paidFeature === "player6") setMaxPlayers(6);
     if (paidFeature === "min20") setGameLength(20);
     if (returnedRoom) setRoomCode(returnedRoom);
   }, []);
 
+  // ─── Reroll: 1st free, subsequent = Stripe ───────────────────────
   function handleReroll() {
     if (rerollsUsed === 0) {
-      setScenario(randomScenario());
+      setScenario(prev => randomScenario(prev.id));
       setRerollsUsed(1);
     } else {
-      goToStripe("reroll", roomCode);
+      goToStripe("reroll");
     }
   }
 
@@ -234,12 +231,25 @@ export default function Lobby({ onGameStart }) {
 
   if (showTutorial) return <Tutorial onDone={() => setShowTutorial(false)} />;
   if (showScenarioPicker) return (
-    <ScenarioPicker scenarios={SCENARIOS} onPick={(s) => { setScenario(s); setShowScenarioPicker(false); }} onClose={() => setShowScenarioPicker(false)} />
+    <ScenarioPicker
+      scenarios={SCENARIOS}
+      onPick={(s) => { setScenario(s); setShowScenarioPicker(false); }}
+      onClose={() => setShowScenarioPicker(false)}
+    />
   );
 
-  // ─── Reusable sub-components ────────────────────────────────────
+  // ─── Reusable sub-components (defined inside render so they close over state) ──
 
-  const ScenarioBlock = ({ currentRoomCode = "" }) => (
+  const RerollButton = () => (
+    <button
+      onClick={handleReroll}
+      style={{ flex: 1, padding: "7px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: "pointer" }}
+    >
+      {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll again ($0.99)"}
+    </button>
+  );
+
+  const ScenarioBlock = () => (
     <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Startup scenario</p>
@@ -251,19 +261,18 @@ export default function Lobby({ onGameStart }) {
       </div>
       <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
       <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={handleReroll}
-          style={{ flex: 1, padding: "7px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
-          {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll again ($0.99)"}
-        </button>
-        <button onClick={() => goToStripe("scenario", currentRoomCode)}
-          style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
+        <RerollButton />
+        <button
+          onClick={() => goToStripe("scenario")}
+          style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}
+        >
           💛 Pick mine ($0.99)
         </button>
       </div>
     </div>
   );
 
-  const GameLengthBlock = ({ small = false, currentRoomCode = "" }) => (
+  const GameLengthBlock = ({ small = false }) => (
     <div style={{ display: "flex", gap: small ? 5 : 6, flexWrap: "wrap" }}>
       {[5, 10, 15].map(t => (
         <button key={t} onClick={() => setGameLength(t)}
@@ -271,14 +280,16 @@ export default function Lobby({ onGameStart }) {
           {t} min
         </button>
       ))}
-      <button onClick={() => goToStripe("min20", currentRoomCode)}
-        style={{ padding: small ? "6px 12px" : "7px 14px", background: gameLength === 20 ? "#facc15" : "#111", color: gameLength === 20 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: small ? 11 : 12 }}>
+      <button
+        onClick={() => goToStripe("min20")}
+        style={{ padding: small ? "6px 12px" : "7px 14px", background: gameLength === 20 ? "#facc15" : "#111", color: gameLength === 20 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: small ? 11 : 12 }}
+      >
         20 min 💛
       </button>
     </div>
   );
 
-  // ─── Room waiting screen ────────────────────────────────────────
+  // ─── Room waiting screen ─────────────────────────────────────────
   if (roomData && (isHost || !joining)) {
     return (
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "2rem 1.5rem" }}>
@@ -310,7 +321,7 @@ export default function Lobby({ onGameStart }) {
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Game length</p>
             <div style={{ marginBottom: 14 }}>
-              <GameLengthBlock small currentRoomCode={roomCode || roomCodeRef.current} />
+              <GameLengthBlock small />
             </div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Difficulty</p>
@@ -331,13 +342,13 @@ export default function Lobby({ onGameStart }) {
                   {n}
                 </button>
               ))}
-              <button onClick={() => maxPlayers === 5 ? setMaxPlayers(5) : goToStripe("player5", roomCode || roomCodeRef.current)}
+              <button onClick={() => maxPlayers >= 5 ? setMaxPlayers(5) : goToStripe("player5")}
                 style={{ padding: "6px 12px", background: maxPlayers === 5 ? "#facc15" : "#111", color: maxPlayers === 5 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                5 {maxPlayers < 5 ? "💛" : ""}
+                5{maxPlayers < 5 ? " 💛" : ""}
               </button>
-              <button onClick={() => maxPlayers === 6 ? setMaxPlayers(6) : goToStripe("player6", roomCode || roomCodeRef.current)}
+              <button onClick={() => maxPlayers >= 6 ? setMaxPlayers(6) : goToStripe("player6")}
                 style={{ padding: "6px 12px", background: maxPlayers === 6 ? "#facc15" : "#111", color: maxPlayers === 6 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                6 {maxPlayers < 6 ? "💛" : ""}
+                6{maxPlayers < 6 ? " 💛" : ""}
               </button>
             </div>
 
@@ -349,7 +360,7 @@ export default function Lobby({ onGameStart }) {
                   {n}
                 </button>
               ))}
-              <button onClick={() => goToStripe("saboteur", roomCode || roomCodeRef.current)}
+              <button onClick={() => goToStripe("saboteur")}
                 style={{ padding: "6px 12px", background: "#111", color: "#ff4444", border: "0.5px solid #ff444430", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
                 + Extra 💛 ($0.99)
               </button>
@@ -367,18 +378,14 @@ export default function Lobby({ onGameStart }) {
               </div>
             </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              <button onClick={handleReroll}
-                style={{ flex: 1, padding: "7px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
-                {rerollsUsed === 0 ? "🎲 Re-roll (1 free)" : "🎲 Re-roll again ($0.99)"}
-              </button>
-              <button onClick={() => goToStripe("scenario", roomCode || roomCodeRef.current)}
+              <RerollButton />
+              <button onClick={() => goToStripe("scenario")}
                 style={{ flex: 1, padding: "7px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 10, cursor: "pointer" }}>
                 💛 Pick mine ($0.99)
               </button>
             </div>
 
-            <button onClick={() => setRanked(!ranked)}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            <button onClick={() => setRanked(!ranked)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
               <p style={{ fontSize: 11, color: ranked ? "#facc15" : "#555" }}>{ranked ? "🏆 Ranked mode ON" : "🏆 Enable ranked mode"}</p>
             </button>
           </div>
@@ -400,7 +407,7 @@ export default function Lobby({ onGameStart }) {
     );
   }
 
-  // ─── Main menu ──────────────────────────────────────────────────
+  // ─── Main menu ───────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 440, margin: "0 auto", padding: "2.5rem 1.5rem", textAlign: "center" }}>
       <div style={{ fontSize: 44, marginBottom: 8 }}>💀</div>
@@ -519,11 +526,11 @@ export default function Lobby({ onGameStart }) {
               ))}
               <button onClick={() => maxPlayers >= 5 ? setMaxPlayers(5) : goToStripe("player5")}
                 style={{ padding: "6px 12px", background: maxPlayers === 5 ? "#facc15" : "#111", color: maxPlayers === 5 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                5 {maxPlayers < 5 ? "💛" : ""}
+                5{maxPlayers < 5 ? " 💛" : ""}
               </button>
               <button onClick={() => maxPlayers >= 6 ? setMaxPlayers(6) : goToStripe("player6")}
                 style={{ padding: "6px 12px", background: maxPlayers === 6 ? "#facc15" : "#111", color: maxPlayers === 6 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>
-                6 {maxPlayers < 6 ? "💛" : ""}
+                6{maxPlayers < 6 ? " 💛" : ""}
               </button>
             </div>
 
