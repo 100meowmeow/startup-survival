@@ -4,42 +4,42 @@ import { sounds } from "./sounds";
 import { submitScore, unlockScore, getRealRank, getTopScores } from "./firebase";
 
 const TITLES = [
-  { id: "corporate_rat",  label: "🐀 Corporate Rat",       explanation: "You were the Saboteur and successfully tanked the company without getting caught.",                                                               condition: (s) => s.isSaboteur && s.reason !== "survived" },
-  { id: "deep_cover",     label: "🕵️ Deep Cover",           explanation: "You were the Saboteur and survived to the end undetected.",                                                                                      condition: (s) => s.isSaboteur && s.reason === "survived" },
-  { id: "silent_deadly",  label: "🐍 Silently Deadly",      explanation: "You drained company resources repeatedly without ever being caught.",                                                                             condition: (s) => s.isSaboteur && (s.stacks?.drain || 0) >= 3 },
-  { id: "judas",          label: "💔 Judas Award",          explanation: "You betrayed your team AND outperformed them.",                                                                                                   condition: (s) => s.defected && s.money > 20000 },
-  { id: "first_quit",     label: "🏃 First to Quit",        explanation: "You defected and abandoned your team.",                                                                                                          condition: (s) => s.defected },
-  { id: "clown",          label: "🤡 Clown Founder",        explanation: "You went bankrupt while chasing viral moments.",                                                                                                 condition: (s) => s.reason === "bankrupt" && (s.stacks?.viral || 0) > 0 },
-  { id: "self_destruct",  label: "🧨 Self Destruct",        explanation: "Your own flash sale strategy bankrupted you.",                                                                                                   condition: (s) => s.reason === "bankrupt" && (s.stacks?.sale || 0) > 2 },
-  { id: "killed_it",      label: "💀 Killed the Company",   explanation: "As CEO, the final decision that ended the company was yours.",                                                                                   condition: (s) => ["bankrupt","morale"].includes(s.reason) && s.role === "CEO" },
-  { id: "pr_disaster",    label: "📸 PR Disaster",          explanation: "Your fake viral attempts kept backfiring publicly.",                                                                                             condition: (s) => (s.stacks?.viral || 0) >= 3 && s.reason !== "survived" },
-  { id: "worst_cfo",      label: "💸 World's Worst CFO",    explanation: "As CFO you're supposed to protect the money — instead you watched it disappear.",                                                               condition: (s) => s.role === "CFO" && s.money < 2000 },
-  { id: "gambler",        label: "🎰 Gambling Addict",      explanation: "You chased high-risk plays constantly.",                                                                                                         condition: (s) => (s.stacks?.viral || 0) + (s.stacks?.plantbug || 0) >= 5 },
-  { id: "delusional",     label: "🔮 Delusional Visionary", explanation: "You pivoted so many times the company lost all identity.",                                                                                       condition: (s) => (s.stacks?.pivot || 0) >= 3 },
-  { id: "ghost",          label: "👻 Ghost Employee",       explanation: "You were barely present.",                                                                                                                       condition: (s) => Object.values(s.stacks || {}).reduce((a,b) => a+b, 0) < 5 },
-  { id: "yes_man",        label: "🫡 Yes Man",              explanation: "You always voted with the majority and never deviated.",                                                                                          condition: (s) => s.reason === "survived" && (s.stacks?.pivot || 0) === 0 && Object.values(s.stacks || {}).reduce((a,b) => a+b, 0) < 15 },
-  { id: "actual_ceo",     label: "👑 Actual CEO Material",  explanation: "You led well, made smart calls, and the company survived.",                                                                                      condition: (s) => s.reason === "survived" && s.role === "CEO" && s.money > 20000 },
-  { id: "unicorn",        label: "🦄 Unicorn Energy",       explanation: "You hit $100k. Only 0.006% of startups become unicorns.",                                                                                       condition: (s) => s.money > 100000 },
-  { id: "overachiever",   label: "🏅 Overachiever",         explanation: "You hit every win condition simultaneously.",                                                                                                    condition: (s) => s.reason === "survived" && s.money > 50000 && s.users > 3000 && s.morale > 70 },
-  { id: "hypergrowth",    label: "🚀 Hypergrowth Hero",     explanation: "You scaled your user base to over 5,000.",                                                                                                       condition: (s) => s.users > 5000 },
-  { id: "comeback",       label: "🌟 Comeback Kid",         explanation: "You were nearly dead and pulled through anyway.",                                                                                                condition: (s) => s.reason === "survived" && s.morale > 70 && s.money > 10000 },
-  { id: "chess",          label: "🧠 5D Chess Player",      explanation: "You built a stacking chain so deep it compounded into a massive advantage.",                                                                    condition: (s) => Object.values(s.stacks || {}).some(v => v >= 8) },
-  { id: "combo_master",   label: "🔗 Combo Master",         explanation: "You discovered and unlocked secret action combinations.",                                                                                        condition: (s) => (s.combosUnlocked || []).length >= 2 },
-  { id: "ice_closer",     label: "🧊 Ice Cold Closer",      explanation: "You closed deal after deal without flinching.",                                                                                                  condition: (s) => (s.stacks?.call || 0) >= 8 },
-  { id: "machine",        label: "⚙️ The Machine",          explanation: "You automated everything you could.",                                                                                                            condition: (s) => (s.stacks?.automate || 0) >= 3 },
-  { id: "diplomat",       label: "🤝 The Diplomat",         explanation: "You kept the team together through all-hands meetings and AMAs.",                                                                                condition: (s) => (s.stacks?.allhands || 0) + (s.stacks?.ama || 0) >= 5 },
-  { id: "mba_who",        label: "🧑‍🎓 MBA Who?",            explanation: "You aced every business question thrown at you.",                                                                                              condition: (s) => (s.stacks?.quiz_correct || 0) >= 8 },
-  { id: "mad_scientist",  label: "🧬 Mad Scientist",        explanation: "You ran A/B test after A/B test.",                                                                                                               condition: (s) => (s.stacks?.ab || 0) >= 6 },
-  { id: "innovative",     label: "💡 Actually Innovative",  explanation: "You shipped feature after feature.",                                                                                                             condition: (s) => (s.stacks?.ship || 0) + (s.stacks?.update || 0) >= 8 },
-  { id: "laser",          label: "🎯 Laser Focused",        explanation: "You picked a strategy and never deviated.",                                                                                                      condition: (s) => s.reason === "survived" && (s.stacks?.call || 0) >= 5 },
-  { id: "vibes",          label: "🌊 Vibes Only",           explanation: "Your team loved working together but the bank account told a different story.",                                                                  condition: (s) => s.morale >= 85 && s.money < 8000 },
-  { id: "penny",          label: "🧻 Penny Pincher",        explanation: "You held onto cash like your life depended on it.",                                                                                             condition: (s) => s.money > 15000 && (s.stacks?.model || 0) >= 2 },
-  { id: "bot_energy",     label: "🤖 Bot Energy",           explanation: "You took more actions than any human reasonably should.",                                                                                        condition: (s) => Object.values(s.stacks || {}).reduce((a,b) => a+b, 0) > 35 },
-  { id: "too_nice",       label: "😇 Too Nice to Win",      explanation: "Maximum morale, minimum money.",                                                                                                                 condition: (s) => s.morale >= 95 && s.money < 5000 },
-  { id: "market_reader",  label: "📊 Market Reader",        explanation: "You timed your actions around market conditions.",                                                                                               condition: (s) => s.reason === "survived" && s.money > 30000 },
-  { id: "reputation_king",label: "🌟 Reputation King",      explanation: "You built trust with investors, press, and customers simultaneously.",                                                                           condition: (s) => s.reputation && Object.values(s.reputation).every(v => v >= 70) },
-  { id: "chaos_agent",    label: "🎭 Chaos Agent",          explanation: "Your wildcard quirk triggered constantly and somehow you still survived.",                                                                       condition: (s) => s.quirk === "wildcard" && s.reason === "survived" },
-  { id: "acquired",       label: "🤝 Got Acquired!",        explanation: "You sold the company at the right moment.",                                                                                                     condition: (s) => s.reason === "acquired" },
+  { id: "corporate_rat",  label: "🐀 Corporate Rat",       explanation: "You were the Saboteur and successfully tanked the company without getting caught.",            condition: (s) => s.isSaboteur && s.reason !== "survived" },
+  { id: "deep_cover",     label: "🕵️ Deep Cover",           explanation: "You were the Saboteur and survived to the end undetected.",                                    condition: (s) => s.isSaboteur && s.reason === "survived" },
+  { id: "silent_deadly",  label: "🐍 Silently Deadly",      explanation: "You drained company resources repeatedly without ever being caught.",                           condition: (s) => s.isSaboteur && (s.stacks?.drain || 0) >= 3 },
+  { id: "judas",          label: "💔 Judas Award",          explanation: "You betrayed your team AND outperformed them.",                                                  condition: (s) => s.defected && s.money > 20000 },
+  { id: "first_quit",     label: "🏃 First to Quit",        explanation: "You defected and abandoned your team.",                                                         condition: (s) => s.defected },
+  { id: "clown",          label: "🤡 Clown Founder",        explanation: "You went bankrupt while chasing viral moments.",                                                 condition: (s) => s.reason === "bankrupt" && (s.stacks?.viral || 0) > 0 },
+  { id: "self_destruct",  label: "🧨 Self Destruct",        explanation: "Your own flash sale strategy bankrupted you.",                                                   condition: (s) => s.reason === "bankrupt" && (s.stacks?.sale || 0) > 2 },
+  { id: "killed_it",      label: "💀 Killed the Company",   explanation: "As CEO, the final decision that ended the company was yours.",                                  condition: (s) => ["bankrupt","morale"].includes(s.reason) && s.role === "CEO" },
+  { id: "pr_disaster",    label: "📸 PR Disaster",          explanation: "Your fake viral attempts kept backfiring publicly.",                                             condition: (s) => (s.stacks?.viral || 0) >= 3 && s.reason !== "survived" },
+  { id: "worst_cfo",      label: "💸 World's Worst CFO",    explanation: "As CFO you're supposed to protect the money — instead you watched it disappear.",               condition: (s) => s.role === "CFO" && s.money < 2000 },
+  { id: "gambler",        label: "🎰 Gambling Addict",      explanation: "You chased high-risk plays constantly.",                                                         condition: (s) => (s.stacks?.viral || 0) + (s.stacks?.plantbug || 0) >= 5 },
+  { id: "delusional",     label: "🔮 Delusional Visionary", explanation: "You pivoted so many times the company lost all identity.",                                       condition: (s) => (s.stacks?.pivot || 0) >= 3 },
+  { id: "ghost",          label: "👻 Ghost Employee",       explanation: "You were barely present.",                                                                       condition: (s) => Object.values(s.stacks || {}).reduce((a,b) => a+b, 0) < 5 },
+  { id: "yes_man",        label: "🫡 Yes Man",              explanation: "You always voted with the majority and never deviated.",                                          condition: (s) => s.reason === "survived" && (s.stacks?.pivot || 0) === 0 && Object.values(s.stacks || {}).reduce((a,b) => a+b, 0) < 15 },
+  { id: "actual_ceo",     label: "👑 Actual CEO Material",  explanation: "You led well, made smart calls, and the company survived.",                                      condition: (s) => s.reason === "survived" && s.role === "CEO" && s.money > 20000 },
+  { id: "unicorn",        label: "🦄 Unicorn Energy",       explanation: "You hit $100k. Only 0.006% of startups become unicorns.",                                       condition: (s) => s.money > 100000 },
+  { id: "overachiever",   label: "🏅 Overachiever",         explanation: "You hit every win condition simultaneously.",                                                    condition: (s) => s.reason === "survived" && s.money > 50000 && s.users > 3000 && s.morale > 70 },
+  { id: "hypergrowth",    label: "🚀 Hypergrowth Hero",     explanation: "You scaled your user base to over 5,000.",                                                       condition: (s) => s.users > 5000 },
+  { id: "comeback",       label: "🌟 Comeback Kid",         explanation: "You were nearly dead and pulled through anyway.",                                                condition: (s) => s.reason === "survived" && s.morale > 70 && s.money > 10000 },
+  { id: "chess",          label: "🧠 5D Chess Player",      explanation: "You built a stacking chain so deep it compounded into a massive advantage.",                    condition: (s) => Object.values(s.stacks || {}).some(v => v >= 8) },
+  { id: "combo_master",   label: "🔗 Combo Master",         explanation: "You discovered and unlocked secret action combinations.",                                        condition: (s) => (s.combosUnlocked || []).length >= 2 },
+  { id: "ice_closer",     label: "🧊 Ice Cold Closer",      explanation: "You closed deal after deal without flinching.",                                                  condition: (s) => (s.stacks?.call || 0) >= 8 },
+  { id: "machine",        label: "⚙️ The Machine",          explanation: "You automated everything you could.",                                                            condition: (s) => (s.stacks?.automate || 0) >= 3 },
+  { id: "diplomat",       label: "🤝 The Diplomat",         explanation: "You kept the team together through all-hands meetings and AMAs.",                                condition: (s) => (s.stacks?.allhands || 0) + (s.stacks?.ama || 0) >= 5 },
+  { id: "mba_who",        label: "🧑‍🎓 MBA Who?",            explanation: "You aced every business question thrown at you.",                                              condition: (s) => (s.stacks?.quiz_correct || 0) >= 8 },
+  { id: "mad_scientist",  label: "🧬 Mad Scientist",        explanation: "You ran A/B test after A/B test.",                                                               condition: (s) => (s.stacks?.ab || 0) >= 6 },
+  { id: "innovative",     label: "💡 Actually Innovative",  explanation: "You shipped feature after feature.",                                                             condition: (s) => (s.stacks?.ship || 0) + (s.stacks?.update || 0) >= 8 },
+  { id: "laser",          label: "🎯 Laser Focused",        explanation: "You picked a strategy and never deviated.",                                                      condition: (s) => s.reason === "survived" && (s.stacks?.call || 0) >= 5 },
+  { id: "vibes",          label: "🌊 Vibes Only",           explanation: "Your team loved working together but the bank account told a different story.",                  condition: (s) => s.morale >= 85 && s.money < 8000 },
+  { id: "penny",          label: "🧻 Penny Pincher",        explanation: "You held onto cash like your life depended on it.",                                              condition: (s) => s.money > 15000 && (s.stacks?.model || 0) >= 2 },
+  { id: "bot_energy",     label: "🤖 Bot Energy",           explanation: "You took more actions than any human reasonably should.",                                        condition: (s) => Object.values(s.stacks || {}).reduce((a,b) => a+b, 0) > 35 },
+  { id: "too_nice",       label: "😇 Too Nice to Win",      explanation: "Maximum morale, minimum money.",                                                                 condition: (s) => s.morale >= 95 && s.money < 5000 },
+  { id: "market_reader",  label: "📊 Market Reader",        explanation: "You timed your actions around market conditions.",                                               condition: (s) => s.reason === "survived" && s.money > 30000 },
+  { id: "reputation_king",label: "🌟 Reputation King",      explanation: "You built trust with investors, press, and customers simultaneously.",                           condition: (s) => s.reputation && Object.values(s.reputation).every(v => v >= 70) },
+  { id: "chaos_agent",    label: "🎭 Chaos Agent",          explanation: "Your wildcard quirk triggered constantly and somehow you still survived.",                       condition: (s) => s.quirk === "wildcard" && s.reason === "survived" },
+  { id: "acquired",       label: "🤝 Got Acquired!",        explanation: "You sold the company at the right moment.",                                                     condition: (s) => s.reason === "acquired" },
 ];
 
 const DEATH_REASONS = {
@@ -83,13 +83,21 @@ function getScore(stats) {
   return Math.max(0, score);
 }
 
-const DIFF_LABELS = { intern: "🎓 Intern", founder: "🚀 Founder", veteran: "⚡ Veteran", shark: "🦈 Shark" };
+const DIFF_LABELS  = { intern: "🎓 Intern", founder: "🚀 Founder", veteran: "⚡ Veteran", shark: "🦈 Shark" };
 const QUIRK_EMOJIS = { overconfident:"😤", cautious:"🤔", charismatic:"😎", paranoid:"😰", lucky:"🍀", reckless:"🎲", methodical:"📋", wildcard:"🃏" };
 
 export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
-  const [scoreId, setScoreId]             = useState(null);   // Firebase key for this score
-  const [realRank, setRealRank]           = useState(null);   // private real rank
-  const [publicLocked, setPublicLocked]   = useState(false);  // paid and public
+  const isSolo   = !!gameConfig?.isSolo;
+  const roomCode = gameConfig?.roomCode || "SOLO";
+
+  // Build team names from gameConfig.players (object keyed by playerId)
+  const teamNames = gameConfig?.players
+    ? Object.values(gameConfig.players).map(p => p.name).filter(Boolean)
+    : [playerData?.name || "Anonymous"];
+
+  const [scoreId, setScoreId]             = useState(null);
+  const [realRank, setRealRank]           = useState(null);
+  const [publicLocked, setPublicLocked]   = useState(false);
   const [showContactForm, setShowContactForm] = useState(false);
   const [contactName, setContactName]     = useState(playerData?.name || "");
   const [contactEmail, setContactEmail]   = useState("");
@@ -101,19 +109,18 @@ export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
   const [topScores, setTopScores]         = useState([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
-  const outcome   = DEATH_REASONS[stats.reason] || DEATH_REASONS.default;
-  const titleObj  = getTitle(stats);
-  const title     = titleObj.label;
+  const outcome    = DEATH_REASONS[stats.reason] || DEATH_REASONS.default;
+  const titleObj   = getTitle(stats);
+  const title      = titleObj.label;
   const explanation = titleObj.explanation;
-  const score     = getScore(stats);
+  const score      = getScore(stats);
 
-  // ─── On mount: submit score to Firebase + get real rank ──────────
+  // ─── On mount: submit score + get rank ──────────────────────────
   useEffect(() => {
     if (["survived", "acquired"].includes(stats.reason)) sounds.win();
     else sounds.lose();
 
     async function init() {
-      // 1. Submit score (unlisted by default)
       const id = await submitScore({
         playerName: playerData?.name || "Anonymous",
         score,
@@ -125,10 +132,12 @@ export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
         money: stats.money,
         users: stats.users,
         morale: Math.round(stats.morale),
+        isSolo,
+        roomCode,
+        teamNames,
       });
       setScoreId(id);
 
-      // 2. Get real rank (counts all scores including unlisted)
       const rank = await getRealRank(score);
       setRealRank(rank);
     }
@@ -138,7 +147,7 @@ export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
   // ─── Handle return from Stripe ───────────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const paidFeature = params.get("paid");
+    const paidFeature   = params.get("paid");
     const returnedScoreId = params.get("sid");
     if (!paidFeature) return;
     window.history.replaceState({}, "", window.location.pathname);
@@ -146,16 +155,13 @@ export default function GameOver({ stats, playerData, gameConfig, onRestart }) {
     if (paidFeature === "leaderboard") {
       setPublicLocked(true);
       setShowContactForm(true);
-      // If we have a scoreId from the URL param, use it (in case page reloaded)
       if (returnedScoreId) setScoreId(returnedScoreId);
     }
     if (paidFeature === "debrief") {
       setShowAIDebrief(true);
       fetchAIDebrief();
     }
-    if (paidFeature === "badge") {
-      setBadgeUnlocked(true);
-    }
+    if (paidFeature === "badge") setBadgeUnlocked(true);
   }, []);
 
   async function fetchAIDebrief() {
@@ -187,16 +193,13 @@ Give a personalized debrief: what they did well, what killed them, and one speci
 
   async function handleContactSubmit() {
     if (!isValidEmail(contactEmail)) return;
-    // Flip score to public in Firebase and attach contact info
-    if (scoreId) {
-      await unlockScore(scoreId, { contactName, contactEmail });
-    }
+    if (scoreId) await unlockScore(scoreId, { contactName, contactEmail });
     setContactSubmitted(true);
     setShowContactForm(false);
   }
 
   function handleGoToStripeLeaderboard() {
-    // Pass scoreId in the success URL so we can unlock it after payment
+    // Pass scoreId in success URL so we can unlock the right entry on return
     const successUrl = `https://survival-startup.netlify.app/?paid=leaderboard${scoreId ? `&sid=${scoreId}` : ""}`;
     window.location.href = `${STRIPE.leaderboard}?success_url=${encodeURIComponent(successUrl)}`;
   }
@@ -208,6 +211,15 @@ Give a personalized debrief: what they did well, what killed them, and one speci
   }
 
   const isValidEmail = (e) => e.trim() && e.includes("@") && e.includes(".") && e.indexOf("@") < e.lastIndexOf(".");
+
+  // ─── Team display string ─────────────────────────────────────────
+  // "Alex, Roshan, Priya & Sam" — used in the lock-in CTA
+  function formatTeamNames(names) {
+    if (!names || names.length === 0) return "your team";
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return `${names[0]} & ${names[1]}`;
+    return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+  }
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", padding: "2rem 1.5rem", textAlign: "center" }}>
@@ -229,6 +241,13 @@ Give a personalized debrief: what they did well, what killed them, and one speci
         {playerData?.isSaboteur && <p style={{ color: "#ff4444", fontSize: 11, marginTop: 4 }}>🐀 Secret Saboteur</p>}
         {stats.difficulty && stats.difficulty !== "founder" && (
           <p style={{ color: "#555", fontSize: 10, marginTop: 4 }}>{DIFF_LABELS[stats.difficulty]} difficulty bonus applied</p>
+        )}
+        {/* Show full team in multiplayer */}
+        {!isSolo && teamNames.length > 1 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid #222" }}>
+            <p style={{ fontSize: 9, color: "#444", textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Team</p>
+            <p style={{ fontSize: 11, color: "#666" }}>{teamNames.join(" · ")}</p>
+          </div>
         )}
       </div>
 
@@ -272,16 +291,18 @@ Give a personalized debrief: what they did well, what killed them, and one speci
 
       {/* ─── Score + leaderboard ─── */}
       <div style={{ background: "#111", border: "0.5px solid #222", borderRadius: 12, padding: "1.25rem", marginBottom: 14 }}>
-        <p style={{ color: "#444", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Your score</p>
+        <p style={{ color: "#444", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+          {isSolo ? "Your score" : "Team score"}
+        </p>
         <p style={{ fontSize: 36, fontWeight: 700, fontFamily: "monospace", color: "#facc15", marginBottom: 6 }}>{score.toLocaleString()}</p>
 
-        {/* Real private rank — always shown once loaded */}
-        {realRank !== null && (
+        {/* Real private rank */}
+        {realRank !== null ? (
           <p style={{ color: "#555", fontSize: 12, marginBottom: 10 }}>
-            You ranked <span style={{ color: "#facc15", fontWeight: 700 }}>#{realRank}</span> out of all players
+            {isSolo ? "You ranked" : "Your team ranked"}{" "}
+            <span style={{ color: "#facc15", fontWeight: 700 }}>#{realRank}</span> out of all players
           </p>
-        )}
-        {realRank === null && (
+        ) : (
           <p style={{ color: "#333", fontSize: 11, marginBottom: 10 }}>Calculating your rank...</p>
         )}
 
@@ -289,13 +310,19 @@ Give a personalized debrief: what they did well, what killed them, and one speci
           <div>
             <div style={{ background: "#1a1500", border: "0.5px solid #facc1530", borderRadius: 8, padding: "10px", marginBottom: 10 }}>
               <p style={{ color: "#facc15", fontSize: 12, fontWeight: 700, marginBottom: 3 }}>
-                🏆 Make your rank #{realRank ?? "?"} public
+                🏆 Make rank #{realRank ?? "?"} public
               </p>
-              <p style={{ color: "#555", fontSize: 11 }}>Lock in your score to appear on the public leaderboard — and be eligible for prizes.</p>
+              {!isSolo && teamNames.length > 1 ? (
+                <p style={{ color: "#555", fontSize: 11 }}>
+                  One payment puts <span style={{ color: "#aaa" }}>{formatTeamNames(teamNames)}</span> on the public leaderboard together — and makes your whole team eligible for prizes.
+                </p>
+              ) : (
+                <p style={{ color: "#555", fontSize: 11 }}>Lock in your score to appear on the public leaderboard — and be eligible for prizes.</p>
+              )}
             </div>
             <button onClick={handleGoToStripeLeaderboard}
               style={{ width: "100%", padding: "12px", background: "#facc15", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
-              🏆 Make Score Public — $1.99
+              🏆 {isSolo ? "Make Score Public" : "Make Team Score Public"} — $1.99
             </button>
             <button onClick={handleShowLeaderboard}
               style={{ width: "100%", padding: "9px", background: "#1a1a1a", color: "#555", border: "0.5px solid #333", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
@@ -304,10 +331,16 @@ Give a personalized debrief: what they did well, what killed them, and one speci
           </div>
         ) : (
           <div>
-            <div style={{ background: "#0a1a0a", border: "0.5px solid #4ade8030", borderRadius: 8, padding: "10px", marginBottom: contactSubmitted ? 0 : 10 }}>
-              <p style={{ color: "#4ade80", fontSize: 13, fontWeight: 700 }}>✓ Score public! You're #{realRank} 🎉</p>
+            <div style={{ background: "#0a1a0a", border: "0.5px solid #4ade8030", borderRadius: 8, padding: "10px", marginBottom: showContactForm && !contactSubmitted ? 10 : 0 }}>
+              <p style={{ color: "#4ade80", fontSize: 13, fontWeight: 700 }}>
+                ✓ {isSolo ? "Score" : "Team score"} is public! #{realRank} 🎉
+              </p>
+              {!isSolo && teamNames.length > 1 && (
+                <p style={{ color: "#555", fontSize: 11, marginTop: 4 }}>{teamNames.join(" · ")}</p>
+              )}
               {contactSubmitted && <p style={{ color: "#555", fontSize: 11, marginTop: 4 }}>We'll contact you if you win a prize.</p>}
             </div>
+
             {showContactForm && !contactSubmitted && (
               <div style={{ marginTop: 10, textAlign: "left" }}>
                 <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Enter your details to be eligible for prizes:</p>
@@ -322,7 +355,9 @@ Give a personalized debrief: what they did well, what killed them, and one speci
                 </button>
               </div>
             )}
-            <button onClick={handleShowLeaderboard} style={{ width: "100%", padding: "9px", background: "#1a1a1a", color: "#555", border: "0.5px solid #333", borderRadius: 8, fontSize: 12, cursor: "pointer", marginTop: 10 }}>
+
+            <button onClick={handleShowLeaderboard}
+              style={{ width: "100%", padding: "9px", background: "#1a1a1a", color: "#555", border: "0.5px solid #333", borderRadius: 8, fontSize: 12, cursor: "pointer", marginTop: 10 }}>
               👀 View public leaderboard
             </button>
           </div>
@@ -336,18 +371,31 @@ Give a personalized debrief: what they did well, what killed them, and one speci
           {topScores.length === 0 ? (
             <p style={{ color: "#444", fontSize: 12 }}>Loading scores...</p>
           ) : (
-            topScores.map((entry, i) => (
-              <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, padding: "6px 0", borderBottom: "0.5px solid #1a1a1a" }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: i === 0 ? "#facc15" : i === 1 ? "#aaa" : i === 2 ? "#fb923c" : "#444", width: 24, textAlign: "center" }}>
-                  {i + 1}
-                </p>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: 12, color: "#fff", fontWeight: 500 }}>{entry.playerName}</p>
-                  <p style={{ fontSize: 10, color: "#555" }}>{entry.title} · {DIFF_LABELS[entry.difficulty] || entry.difficulty} · {entry.scenario}</p>
+            topScores.map((entry, i) => {
+              const names = entry.teamNames?.length > 0
+                ? entry.teamNames.join(", ")
+                : entry.playerName || "Anonymous";
+              const isTeam = !entry.isSolo && entry.teamNames?.length > 1;
+              return (
+                <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "0.5px solid #1a1a1a" }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: i === 0 ? "#facc15" : i === 1 ? "#aaa" : i === 2 ? "#fb923c" : "#444", width: 26, textAlign: "center", flexShrink: 0 }}>
+                    {i + 1}
+                  </p>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, color: "#fff", fontWeight: 600, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {isTeam ? "👥 " : ""}{names}
+                    </p>
+                    <p style={{ fontSize: 10, color: "#555" }}>
+                      {entry.title} · {DIFF_LABELS[entry.difficulty] || entry.difficulty}
+                    </p>
+                    <p style={{ fontSize: 10, color: "#444" }}>{entry.scenario}</p>
+                  </div>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "#facc15", fontFamily: "monospace", flexShrink: 0 }}>
+                    {(entry.score || 0).toLocaleString()}
+                  </p>
                 </div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: "#facc15", fontFamily: "monospace" }}>{(entry.score || 0).toLocaleString()}</p>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}

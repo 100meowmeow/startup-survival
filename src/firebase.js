@@ -77,14 +77,55 @@ export function subscribeToFeed(roomCode, callback) {
   });
 }
 
-// ─── Leaderboard ──────────────────────────────────────────────────
+// ─── Leaderboard ─────────────────────────────────────────────────
+//
+// Data model:
+//   leaderboard/{scoreId}
+//     score         number
+//     title         string
+//     difficulty    string
+//     scenario      string
+//     reason        string
+//     money         number
+//     users         number
+//     morale        number
+//     unlisted      bool      — true until someone pays
+//     roomCode      string    — "SOLO" for solo games
+//     isSolo        bool
+//     teamNames     string[]  — all player names in the room
+//     playerName    string    — who submitted (for solo, same as teamNames[0])
+//     contactName   string    — filled after payment
+//     contactEmail  string    — filled after payment
+//     ts            timestamp
+//
+// For multiplayer: one entry per room, keyed by roomCode.
+// For solo: one entry per game, using a generated key.
+// Any teammate can unlock the shared room entry.
 
 /**
- * Write a score to Firebase immediately after game ends.
- * Starts as unlisted — only flips public after Stripe payment.
- * Returns the generated scoreId so GameOver can store it for later unlocking.
+ * Submit a score entry.
+ *
+ * Solo: creates a new entry, returns its key.
+ * Multiplayer: upserts under rooms/{roomCode}/leaderboardId so all
+ *   teammates reference the same entry. Returns the leaderboard key.
+ *
+ * teamNames — array of all player names in the room (passed from gameConfig.players)
  */
-export async function submitScore({ playerName, score, title, role, difficulty, scenario, reason, money, users, morale }) {
+export async function submitScore({
+  playerName,
+  score,
+  title,
+  role,
+  difficulty,
+  scenario,
+  reason,
+  money,
+  users,
+  morale,
+  isSolo,
+  roomCode,
+  teamNames = [],
+}) {
   try {
     const entry = {
       playerName,
@@ -97,11 +138,43 @@ export async function submitScore({ playerName, score, title, role, difficulty, 
       money,
       users,
       morale,
-      unlisted: true,       // hidden from public board until paid
+      unlisted: true,
+      isSolo: !!isSolo,
+      roomCode: roomCode || "SOLO",
+      // For solo, teamNames is just [playerName]. For multiplayer, it's everyone.
+      teamNames: isSolo ? [playerName] : (teamNames.length > 0 ? teamNames : [playerName]),
+      contactName: null,
+      contactEmail: null,
       ts: serverTimestamp(),
     };
-    const newRef = await push(ref(db, "leaderboard"), entry);
-    return newRef.key;      // return scoreId for later unlocking
+
+    if (isSolo || !roomCode || roomCode === "SOLO") {
+      // Solo: always create a fresh entry
+      const newRef = await push(ref(db, "leaderboard"), entry);
+      return newRef.key;
+    } else {
+      // Multiplayer: check if this room already has a leaderboard entry
+      const existingSnap = await get(ref(db, `rooms/${roomCode}/leaderboardId`));
+      if (existingSnap.exists()) {
+        // Entry already created by a teammate — just return the existing key
+        // Optionally update score if this player's submission is higher
+        const existingId = existingSnap.val();
+        const existingEntrySnap = await get(ref(db, `leaderboard/${existingId}`));
+        if (existingEntrySnap.exists()) {
+          const existingScore = existingEntrySnap.val().score || 0;
+          if (score > existingScore) {
+            // Update to the higher score
+            await update(ref(db, `leaderboard/${existingId}`), { score, title, money, users, morale, reason });
+          }
+        }
+        return existingId;
+      } else {
+        // First player to finish — create the entry and store its key on the room
+        const newRef = await push(ref(db, "leaderboard"), entry);
+        await update(ref(db, `rooms/${roomCode}`), { leaderboardId: newRef.key });
+        return newRef.key;
+      }
+    }
   } catch (e) {
     console.error("submitScore failed:", e);
     return null;
@@ -109,23 +182,21 @@ export async function submitScore({ playerName, score, title, role, difficulty, 
 }
 
 /**
- * Flip a score from unlisted to public, and attach contact info.
- * Called after Stripe payment redirect with ?paid=leaderboard.
+ * Unlock a score entry — flip unlisted to false, save contact info.
+ * Works for both solo and multiplayer (same scoreId either way).
  */
 export async function unlockScore(scoreId, { contactName, contactEmail }) {
   try {
     await update(ref(db, `leaderboard/${scoreId}`), {
       unlisted: false,
-      contactName,
-      contactEmail,
+      contactName: contactName || null,
+      contactEmail: contactEmail || null,
     });
   } catch (e) { console.error("unlockScore failed:", e); }
 }
 
 /**
- * Fetch top 20 public scores (unlisted: false), ordered by score descending.
- * Firebase Realtime DB doesn't support filtering + ordering in one query,
- * so we fetch the top 200 by score and filter client-side.
+ * Fetch top 20 public (unlisted: false) scores, sorted by score descending.
  */
 export async function getTopScores() {
   try {
@@ -141,7 +212,6 @@ export async function getTopScores() {
       const val = child.val();
       if (!val.unlisted) entries.push({ id: child.key, ...val });
     });
-    // Sort descending by score, return top 20
     return entries.sort((a, b) => b.score - a.score).slice(0, 20);
   } catch (e) {
     console.error("getTopScores failed:", e);
@@ -150,8 +220,7 @@ export async function getTopScores() {
 }
 
 /**
- * Get the real rank of a score among ALL scores (including unlisted).
- * Used to show the player their private rank on the game over screen.
+ * Get a player's real rank by counting all scores (public + unlisted) above theirs.
  */
 export async function getRealRank(score) {
   try {
@@ -159,8 +228,7 @@ export async function getRealRank(score) {
     if (!snap.exists()) return 1;
     let rank = 1;
     snap.forEach(child => {
-      const val = child.val();
-      if ((val.score || 0) > score) rank++;
+      if ((child.val().score || 0) > score) rank++;
     });
     return rank;
   } catch (e) {
