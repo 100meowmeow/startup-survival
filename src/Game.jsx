@@ -1,5 +1,6 @@
 import { incrementPlayerCount } from "./firebase";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { initGameState, applyGameStateDelta, subscribeToGameState, addFeedItem, subscribeToFeed } from "./firebase";
+import { useState, useEffect, useRef } from "react";
 import { getEventsForScenario } from "./events";
 import { sounds } from "./sounds";
 import Activity, { ACTIVITY_MAP } from "./Activity";
@@ -37,33 +38,33 @@ const GAME_DURATIONS = { 5: 300, 10: 600, 15: 900, 20: 1200 };
 
 const PERSONALITY_QUIRKS = [
   { id: "overconfident", label: "😤 Overconfident", desc: "Your morale never drops below 40% — but bad decisions cost double.", moraleFloor: 40, badMultiplier: 2.0, goodMultiplier: 1.0 },
-  { id: "cautious", label: "🤔 Cautious", desc: "Your actions always work — but at 60% effectiveness.", moraleFloor: 0, badMultiplier: 0.5, goodMultiplier: 0.6 },
-  { id: "charismatic", label: "😎 Charismatic", desc: "Networking and AMA always succeed — but financial decisions are riskier.", moraleFloor: 0, badMultiplier: 1.5, goodMultiplier: 1.3 },
-  { id: "paranoid", label: "😰 Paranoid", desc: "You see all saboteur actions — but you're 20% slower on all activities.", moraleFloor: 0, badMultiplier: 1.0, goodMultiplier: 0.8 },
-  { id: "lucky", label: "🍀 Lucky", desc: "Random events have a 30% chance to flip to the positive outcome.", moraleFloor: 0, badMultiplier: 0.7, goodMultiplier: 1.0 },
-  { id: "reckless", label: "🎲 Reckless", desc: "All outcomes are doubled — double wins AND double losses.", moraleFloor: 0, badMultiplier: 2.0, goodMultiplier: 2.0 },
-  { id: "methodical", label: "📋 Methodical", desc: "Stacks build 50% faster — but you can only do one action at a time.", moraleFloor: 0, badMultiplier: 1.0, goodMultiplier: 1.5 },
-  { id: "wildcard", label: "🃏 Wildcard", desc: "Every action has a 20% chance of a completely random outcome.", moraleFloor: 0, badMultiplier: 1.0, goodMultiplier: 1.0 },
+  { id: "cautious",      label: "🤔 Cautious",      desc: "Your actions always work — but at 60% effectiveness.", moraleFloor: 0, badMultiplier: 0.5, goodMultiplier: 0.6 },
+  { id: "charismatic",   label: "😎 Charismatic",   desc: "Networking and AMA always succeed — but financial decisions are riskier.", moraleFloor: 0, badMultiplier: 1.5, goodMultiplier: 1.3 },
+  { id: "paranoid",      label: "😰 Paranoid",      desc: "You see all saboteur actions — but you're 20% slower on all activities.", moraleFloor: 0, badMultiplier: 1.0, goodMultiplier: 0.8 },
+  { id: "lucky",         label: "🍀 Lucky",         desc: "Random events have a 30% chance to flip to the positive outcome.", moraleFloor: 0, badMultiplier: 0.7, goodMultiplier: 1.0 },
+  { id: "reckless",      label: "🎲 Reckless",      desc: "All outcomes are doubled — double wins AND double losses.", moraleFloor: 0, badMultiplier: 2.0, goodMultiplier: 2.0 },
+  { id: "methodical",    label: "📋 Methodical",    desc: "Stacks build 50% faster — but you can only do one action at a time.", moraleFloor: 0, badMultiplier: 1.0, goodMultiplier: 1.5 },
+  { id: "wildcard",      label: "🃏 Wildcard",      desc: "Every action has a 20% chance of a completely random outcome.", moraleFloor: 0, badMultiplier: 1.0, goodMultiplier: 1.0 },
 ];
 
 const MARKET_CONDITIONS = [
-  { id: "recession", label: "📉 Recession", desc: "Revenue -30% for 90s", effect: { revenueMultiplier: 0.7 }, duration: 90, color: "#ff4444" },
-  { id: "ai_hype", label: "🤖 AI Hype Cycle", desc: "Tech startups get 2x users from all actions", effect: { userMultiplier: 2.0 }, duration: 60, color: "#a78bfa" },
-  { id: "viral_moment", label: "🔥 Viral Moment", desc: "All marketing actions have 3x effect", effect: { marketingMultiplier: 3.0 }, duration: 45, color: "#fb923c" },
-  { id: "investor_frenzy", label: "💰 Investor Frenzy", desc: "Pitch success rate +50% for 60s", effect: { pitchBonus: 1.5 }, duration: 60, color: "#4ade80" },
-  { id: "regulatory_crackdown", label: "⚖️ Regulatory Crackdown", desc: "Healthcare/fintech can't run paid campaigns", effect: { campaignBlocked: true }, duration: 75, color: "#facc15" },
-  { id: "talent_war", label: "👔 Talent War", desc: "Hiring costs 2x but quality is higher", effect: { hireMultiplier: 2.0 }, duration: 60, color: "#60a5fa" },
-  { id: "market_crash", label: "💥 Market Crash", desc: "All money effects -50% for 60s", effect: { moneyMultiplier: 0.5 }, duration: 60, color: "#ff4444" },
-  { id: "growth_surge", label: "🚀 Growth Surge", desc: "All user gains doubled for 45s", effect: { userMultiplier: 2.0 }, duration: 45, color: "#4ade80" },
+  { id: "recession",            label: "📉 Recession",           desc: "Revenue -30% for 90s",                          effect: { revenueMultiplier: 0.7  }, duration: 90, color: "#ff4444" },
+  { id: "ai_hype",              label: "🤖 AI Hype Cycle",       desc: "Tech startups get 2x users from all actions",   effect: { userMultiplier: 2.0     }, duration: 60, color: "#a78bfa" },
+  { id: "viral_moment",         label: "🔥 Viral Moment",        desc: "All marketing actions have 3x effect",          effect: { marketingMultiplier: 3.0}, duration: 45, color: "#fb923c" },
+  { id: "investor_frenzy",      label: "💰 Investor Frenzy",     desc: "Pitch success rate +50% for 60s",               effect: { pitchBonus: 1.5         }, duration: 60, color: "#4ade80" },
+  { id: "regulatory_crackdown", label: "⚖️ Regulatory Crackdown",desc: "Healthcare/fintech can't run paid campaigns",   effect: { campaignBlocked: true   }, duration: 75, color: "#facc15" },
+  { id: "talent_war",           label: "👔 Talent War",          desc: "Hiring costs 2x but quality is higher",         effect: { hireMultiplier: 2.0     }, duration: 60, color: "#60a5fa" },
+  { id: "market_crash",         label: "💥 Market Crash",        desc: "All money effects -50% for 60s",                effect: { moneyMultiplier: 0.5    }, duration: 60, color: "#ff4444" },
+  { id: "growth_surge",         label: "🚀 Growth Surge",        desc: "All user gains doubled for 45s",                effect: { userMultiplier: 2.0     }, duration: 45, color: "#4ade80" },
 ];
 
 const COMBO_BONUSES = [
-  { id: "media_moment", stacks: { blog: 3, network: 3, pitch_practice: 2 }, label: "📰 Media Moment!", desc: "A journalist writes about you unprompted!", effect: { users: 1500, morale: 20 } },
-  { id: "sales_flywheel", stacks: { call: 8, campaign: 4, email: 6 }, label: "🔄 Sales Flywheel!", desc: "Auto-converting users to revenue every 60s!", effect: { money: 5000, users: 500 } },
-  { id: "tech_monopoly", stacks: { ship: 5, debt: 3, ab: 4 }, label: "⚡ Tech Monopoly!", desc: "Your product is untouchable. Competitor attacks fail permanently.", effect: { users: 1000, morale: 25 } },
-  { id: "cult_brand", stacks: { ama: 3, outreach: 4, allhands: 3 }, label: "🌊 Cult Brand!", desc: "Users are evangelists now. Organic growth activated.", effect: { users: 2000, morale: 30 } },
-  { id: "investor_darling", stacks: { pitch_practice: 4, model: 3, network: 4 }, label: "🦄 Investor Darling!", desc: "VCs are fighting over you. Bonus $30k incoming!", effect: { money: 30000, morale: 20 } },
-  { id: "data_empire", stacks: { ab: 6, automate: 3, model: 4 }, label: "📊 Data Empire!", desc: "Your data advantage is compounding. All decisions show predicted outcomes.", effect: { money: 10000, users: 500 } },
+  { id: "media_moment",    stacks: { blog: 3, network: 3, pitch_practice: 2 }, label: "📰 Media Moment!",    desc: "A journalist writes about you unprompted!",                               effect: { users: 1500, morale: 20  } },
+  { id: "sales_flywheel",  stacks: { call: 8, campaign: 4, email: 6         }, label: "🔄 Sales Flywheel!",  desc: "Auto-converting users to revenue every 60s!",                             effect: { money: 5000, users: 500  } },
+  { id: "tech_monopoly",   stacks: { ship: 5, debt: 3, ab: 4                }, label: "⚡ Tech Monopoly!",   desc: "Your product is untouchable. Competitor attacks fail permanently.",        effect: { users: 1000, morale: 25  } },
+  { id: "cult_brand",      stacks: { ama: 3, outreach: 4, allhands: 3       }, label: "🌊 Cult Brand!",      desc: "Users are evangelists now. Organic growth activated.",                    effect: { users: 2000, morale: 30  } },
+  { id: "investor_darling",stacks: { pitch_practice: 4, model: 3, network: 4}, label: "🦄 Investor Darling!",desc: "VCs are fighting over you. Bonus $30k incoming!",                        effect: { money: 30000, morale: 20 } },
+  { id: "data_empire",     stacks: { ab: 6, automate: 3, model: 4           }, label: "📊 Data Empire!",     desc: "Your data advantage is compounding.",                                    effect: { money: 10000, users: 500 } },
 ];
 
 const SEASONAL_EVENTS = [
@@ -94,13 +95,11 @@ function PitchTimer({ onExpire }) {
   );
 }
 
-// ─── Determine if an activity result is a net positive or failure ──────────
 function isPositiveResult(result) {
   if (!result || typeof result !== "object") return false;
   const money = result.money || 0;
   const users = result.users || 0;
   const morale = result.morale || 0;
-  // A result is positive if it has at least one positive stat and no large negatives
   const hasPositive = money > 0 || users > 0 || morale > 0;
   const hasNegative = money < -500 || users < -50 || morale < -3;
   return hasPositive && !hasNegative;
@@ -111,10 +110,16 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
   const duration = GAME_DURATIONS[gameConfig.gameLength] || 600;
   const EVENTS = getEventsForScenario(gameConfig?.scenario?.id || "");
   const quirk = PERSONALITY_QUIRKS.find(q => q.id === playerData.quirk) || PERSONALITY_QUIRKS[0];
+  const isSolo = !!gameConfig.isSolo;
+  const isHost = gameConfig.hostId === playerData.id || isSolo;
+  const roomCode = gameConfig.roomCode;
 
+  // ─── Shared stats (mirrors Firebase in multiplayer, local in solo) ──
   const [money, setMoney] = useState(difficulty.startMoney);
   const [users, setUsers] = useState(0);
   const [morale, setMorale] = useState(100);
+
+  // ─── Local-only state ────────────────────────────────────────────
   const [timeLeft, setTimeLeft] = useState(duration);
   const [currentEvent, setCurrentEvent] = useState(null);
   const [eventTimeLeft, setEventTimeLeft] = useState(null);
@@ -142,16 +147,51 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
   const [passiveRevenue, setPassiveRevenue] = useState(0);
   const [recentStatChange, setRecentStatChange] = useState(null);
   const [seasonalTriggered, setSeasonalTriggered] = useState([]);
+  const [activityFeed, setActivityFeed] = useState([]); // multiplayer feed
 
   const usedEventsRef = useRef([]);
   const stateRef = useRef({});
   stateRef.current = { money, users, morale, gameActive, stacks, reputation, passiveRevenue };
 
+  // ─── Player count ────────────────────────────────────────────────
   useEffect(() => {
     incrementPlayerCount();
   }, []);
 
-  // Main timer
+  // ─── Multiplayer: init shared state (host only) ──────────────────
+  useEffect(() => {
+    if (isSolo) return;
+    if (isHost) {
+      initGameState(roomCode, difficulty.startMoney);
+    }
+  }, []);
+
+  // ─── Multiplayer: subscribe to shared game state ─────────────────
+  useEffect(() => {
+    if (isSolo) return;
+    const unsub = subscribeToGameState(roomCode, ({ money: m, users: u, morale: mo }) => {
+      // Clamp values to valid ranges
+      setMoney(Math.max(0, m || 0));
+      setUsers(Math.max(0, u || 0));
+      setMorale(Math.min(100, Math.max(0, mo || 0)));
+
+      // Check end conditions from shared state
+      if ((m || 0) <= 0) endGame("bankrupt");
+      if ((mo || 0) <= 0) endGame("morale");
+    });
+    return () => unsub();
+  }, []);
+
+  // ─── Multiplayer: subscribe to activity feed ─────────────────────
+  useEffect(() => {
+    if (isSolo) return;
+    const unsub = subscribeToFeed(roomCode, (items) => {
+      setActivityFeed(items);
+    });
+    return () => unsub();
+  }, []);
+
+  // ─── Main timer ──────────────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => {
       setTimeLeft(prev => {
@@ -162,13 +202,16 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearInterval(t);
   }, []);
 
-  // Passive revenue from users
+  // ─── Passive revenue from users ──────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => {
       if (!stateRef.current.gameActive) return;
       const passive = Math.floor(stateRef.current.users / 100) * 50;
       if (passive > 0) {
-        setMoney(prev => prev + passive);
+        // In multiplayer, only host applies passive revenue to avoid double-counting
+        if (isSolo || isHost) {
+          applySharedDelta({ moneyDelta: passive }, "Passive revenue", null);
+        }
         setPassiveRevenue(passive);
         setTimeout(() => setPassiveRevenue(0), 2000);
       }
@@ -176,23 +219,20 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearInterval(t);
   }, []);
 
-  // Morale passive decay
+  // ─── Morale passive decay ────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => {
       if (!stateRef.current.gameActive) return;
-      setMorale(prev => {
-        const decayRate = {
-          intern: 0.5, founder: 1.5, veteran: 2.5, shark: 4,
-        }[gameConfig.difficulty || "founder"] || 1.5;
-        const newMorale = Math.max(0, prev - decayRate);
-        if (newMorale <= 0) endGame("morale");
-        return newMorale;
-      });
+      const decayRate = { intern: 0.5, founder: 1.5, veteran: 2.5, shark: 4 }[gameConfig.difficulty || "founder"] || 1.5;
+      // Only host applies decay in multiplayer to avoid double-decay
+      if (isSolo || isHost) {
+        applySharedDelta({ moraleDelta: -decayRate }, "Morale decay", null);
+      }
     }, 15000);
     return () => clearInterval(t);
   }, []);
 
-  // Market conditions
+  // ─── Market conditions ───────────────────────────────────────────
   useEffect(() => {
     const interval = 45000 + Math.random() * 30000;
     const t = setInterval(() => {
@@ -206,7 +246,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearInterval(t);
   }, []);
 
-  // Market condition countdown
   useEffect(() => {
     if (!marketCondition) return;
     const t = setInterval(() => {
@@ -218,7 +257,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearInterval(t);
   }, [marketCondition]);
 
-  // Seasonal events
+  // ─── Seasonal events ─────────────────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => {
       const elapsed = (duration - timeLeft) / duration;
@@ -234,7 +273,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearInterval(t);
   }, [timeLeft, seasonalTriggered]);
 
-  // Event timer — auto-resolve if ignored
+  // ─── Event auto-resolve ──────────────────────────────────────────
   useEffect(() => {
     if (!currentEvent || eventTimeLeft === null) return;
     if (eventTimeLeft <= 0) {
@@ -257,7 +296,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearTimeout(t);
   }, [currentEvent, eventTimeLeft]);
 
-  // Events
+  // ─── Random events ───────────────────────────────────────────────
   useEffect(() => {
     const interval = difficulty.eventInterval * 1000;
     const t = setInterval(() => {
@@ -267,7 +306,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearInterval(t);
   }, []);
 
-  // Auto investor pitch at midpoint
+  // ─── Auto investor pitch at midpoint ─────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => {
       if (stateRef.current.gameActive && !pitchUsed) setShowInvestorPitch(true);
@@ -275,7 +314,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     return () => clearTimeout(t);
   }, []);
 
-  // Combo detection
+  // ─── Combo detection ─────────────────────────────────────────────
   useEffect(() => {
     COMBO_BONUSES.forEach(combo => {
       if (comboUnlocked.includes(combo.id)) return;
@@ -291,22 +330,38 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     });
   }, [stacks]);
 
-  function triggerEvent() {
-    const available = EVENTS.filter(e => !usedEventsRef.current.includes(e.id));
-    if (!available.length) { usedEventsRef.current = []; return; }
-    const pick = available[Math.floor(Math.random() * available.length)];
-    usedEventsRef.current = [...usedEventsRef.current, pick.id];
-    setCurrentEvent(pick);
-    setEventTimeLeft(20);
-    sounds.event();
-    if (pick.tier >= 3) sounds.crisis();
+  // ─── Core stat application ───────────────────────────────────────
+
+  /**
+   * In multiplayer: writes deltas to Firebase. Firebase subscription updates local state.
+   * In solo: updates local state directly.
+   */
+  async function applySharedDelta({ moneyDelta = 0, usersDelta = 0, moraleDelta = 0 }, actionKey, statSummary) {
+    if (isSolo) {
+      // Solo: apply directly to local state
+      setMoney(prev => Math.max(0, prev + moneyDelta));
+      setUsers(prev => Math.max(0, prev + usersDelta));
+      setMorale(prev => Math.min(100, Math.max(quirk.moraleFloor, prev + moraleDelta)));
+    } else {
+      // Multiplayer: write to Firebase, subscription will update local state
+      await applyGameStateDelta(
+        roomCode,
+        { moneyDelta, usersDelta, moraleDelta },
+        playerData.name,
+        actionKey
+      );
+      // Also post to activity feed if there's a meaningful stat summary
+      if (statSummary && actionKey) {
+        await addFeedItem(roomCode, playerData.name, playerData.role, actionKey, statSummary);
+      }
+    }
   }
 
   function applyEffect(effect, extraMultiplier = 1) {
     if (!effect) return;
     const s = stateRef.current;
     const m = difficulty.consequenceMultiplier * extraMultiplier;
-    const quirkMult = effect.money < 0 || effect.users < 0 || effect.morale < 0
+    const quirkMult = (effect.money || 0) < 0 || (effect.users || 0) < 0 || (effect.morale || 0) < 0
       ? quirk.badMultiplier : quirk.goodMultiplier;
 
     const isWildcard = quirk.id === "wildcard" && Math.random() < 0.2;
@@ -323,40 +378,46 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       morale: Math.abs(finalEffect.morale || 0),
     } : finalEffect;
 
-    const moneyChange = Math.round((luckyEffect.money || 0) * (luckyEffect.money < 0 ? m * quirkMult : 1));
-    const userChange = Math.round((luckyEffect.users || 0) * (luckyEffect.users < 0 ? m * quirkMult : 1));
-    const moraleChange = Math.round((luckyEffect.morale || 0) * (luckyEffect.morale < 0 ? m * quirkMult : 1));
+    const moneyDelta = Math.round((luckyEffect.money || 0) * ((luckyEffect.money || 0) < 0 ? m * quirkMult : 1));
+    const usersDelta = Math.round((luckyEffect.users || 0) * ((luckyEffect.users || 0) < 0 ? m * quirkMult : 1));
+    const moraleDelta = Math.round((luckyEffect.morale || 0) * ((luckyEffect.morale || 0) < 0 ? m * quirkMult : 1));
 
-    const newMoney = Math.max(0, s.money + moneyChange);
-    const newUsers = Math.max(0, s.users + userChange);
-    const newMorale = Math.min(100, Math.max(quirk.moraleFloor, s.morale + moraleChange));
+    // Build stat summary string for feed
+    const parts = [];
+    if (moneyDelta !== 0) parts.push(`${moneyDelta > 0 ? "+" : ""}$${Math.abs(moneyDelta).toLocaleString()}`);
+    if (usersDelta !== 0) parts.push(`${usersDelta > 0 ? "+" : ""}${usersDelta} users`);
+    if (moraleDelta !== 0) parts.push(`${moraleDelta > 0 ? "+" : ""}${moraleDelta}% morale`);
+    const statSummary = parts.join(" · ");
 
-    setMoney(newMoney);
-    setUsers(newUsers);
-    setMorale(newMorale);
-
-    const changes = [];
-    if (moneyChange !== 0) changes.push(`${moneyChange > 0 ? "+" : ""}$${Math.abs(moneyChange).toLocaleString()}`);
-    if (userChange !== 0) changes.push(`${userChange > 0 ? "+" : ""}${userChange} users`);
-    if (moraleChange !== 0) changes.push(`${moraleChange > 0 ? "+" : ""}${moraleChange}% morale`);
-    if (changes.length > 0) {
-      const isPositive = moneyChange >= 0 && userChange >= 0 && moraleChange >= 0;
-      setRecentStatChange({ text: changes.join(" · "), positive: isPositive });
+    // Show local stat change indicator
+    if (parts.length > 0) {
+      const isPositive = moneyDelta >= 0 && usersDelta >= 0 && moraleDelta >= 0;
+      setRecentStatChange({ text: statSummary, positive: isPositive });
       setTimeout(() => setRecentStatChange(null), 3000);
     }
 
-    if (luckyEffect.money > 5000) setReputation(prev => ({ ...prev, investor: Math.min(100, prev.investor + 5) }));
-    if (luckyEffect.users > 500) setReputation(prev => ({ ...prev, customer: Math.min(100, prev.customer + 3) }));
-    if (luckyEffect.morale > 10) setReputation(prev => ({ ...prev, press: Math.min(100, prev.press + 2) }));
-    if (luckyEffect.money < -5000) setReputation(prev => ({ ...prev, investor: Math.max(0, prev.investor - 5) }));
-    if (luckyEffect.users < -200) setReputation(prev => ({ ...prev, customer: Math.max(0, prev.customer - 5) }));
+    // Apply — either to Firebase (multiplayer) or local state (solo)
+    applySharedDelta({ moneyDelta, usersDelta, moraleDelta }, null, null);
+
+    // In solo mode, also check end conditions immediately from local calc
+    if (isSolo) {
+      const newMoney = Math.max(0, s.money + moneyDelta);
+      const newMorale = Math.min(100, Math.max(quirk.moraleFloor, s.morale + moraleDelta));
+      if (effect.win) { endGame("acquired"); return; }
+      if (newMoney <= 0) { endGame("bankrupt"); return; }
+      if (newMorale <= 0) { endGame("morale"); return; }
+    }
+    // In multiplayer, end conditions are checked in the subscribeToGameState callback
+
+    // Reputation updates (always local)
+    if (moneyDelta > 5000) setReputation(prev => ({ ...prev, investor: Math.min(100, prev.investor + 5) }));
+    if (usersDelta > 500) setReputation(prev => ({ ...prev, customer: Math.min(100, prev.customer + 3) }));
+    if (moraleDelta > 10) setReputation(prev => ({ ...prev, press: Math.min(100, prev.press + 2) }));
+    if (moneyDelta < -5000) setReputation(prev => ({ ...prev, investor: Math.max(0, prev.investor - 5) }));
+    if (usersDelta < -200) setReputation(prev => ({ ...prev, customer: Math.max(0, prev.customer - 5) }));
 
     if (isWildcard) { setFeedback("🃏 Wildcard! Outcome reversed!"); setTimeout(() => setFeedback(null), 2000); }
     if (isLucky) { setFeedback("🍀 Lucky! Negative flipped positive!"); setTimeout(() => setFeedback(null), 2000); }
-
-    if (effect.win) { endGame("acquired"); return; }
-    if (newMoney <= 0) { endGame("bankrupt"); return; }
-    if (newMorale <= 0) { endGame("morale"); return; }
   }
 
   function handleEventChoice(option) {
@@ -367,8 +428,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     setEventTimeLeft(null);
 
     const effect = option.effect || {};
-    const positives = [];
-    const negatives = [];
+    const positives = [], negatives = [];
     if ((effect.money || 0) > 0) positives.push(`+$${effect.money.toLocaleString()}`);
     if ((effect.money || 0) < 0) negatives.push(`-$${Math.abs(effect.money).toLocaleString()}`);
     if ((effect.users || 0) > 0) positives.push(`+${effect.users} users`);
@@ -378,8 +438,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
 
     const isGood = positives.length >= negatives.length;
     const summary = [...positives, ...negatives].join(" · ") || "No immediate effect.";
-    const tone = isGood ? "Good call." : negatives.length > 1 ? "You'll regret that." : "Risky move.";
-    setFeedback(`${isGood ? "✓" : "✗"} ${tone} ${summary}`);
+    setFeedback(`${isGood ? "✓" : "✗"} ${isGood ? "Good call." : "Risky move."} ${summary}`);
     setTimeout(() => setFeedback(null), 3500);
   }
 
@@ -401,8 +460,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
   function addStack(key) {
     setStacks(prev => {
       const next = { ...prev, [key]: (prev[key] || 0) + 1 };
-      const bonus = quirk.id === "methodical" ? 0.5 : 0;
-      if (bonus > 0) next[key] = Math.floor(next[key] * (1 + bonus));
+      if (quirk.id === "methodical") next[key] = Math.floor(next[key] * 1.5);
       return next;
     });
   }
@@ -422,16 +480,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     setTimeout(() => setFeedback(null), 1500);
   }
 
-  // ─── KEY FIX: Activity completion handler ────────────────────────
-  // Activities return their own result objects. We must NOT blindly pass
-  // positive values from a "failed" activity through as gains.
-  // The Activity components already return negative or zero stats on failure.
-  // The bug was that some activities return small positives (e.g. {users: 30})
-  // even on failure — this is intentional consolation in Activity.jsx.
-  // The real bug was applyEffect applying goodMultiplier to these small positives,
-  // amplifying them. We now apply the consequenceMultiplier to ALL activity results
-  // but skip quirk multipliers so the raw activity result goes through unchanged.
-  function handleActivityComplete(result) {
+  async function handleActivityComplete(result) {
     if (!activeActivity) return;
     const { key, cooldownSecs, stackKey } = activeActivity;
     setActiveActivity(null);
@@ -439,75 +488,73 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
 
     if (result.defect) {
       setDefected(true);
-      applyEffect({
-        money: -Math.floor(stateRef.current.money * 0.6),
-        users: -Math.floor(stateRef.current.users * 0.6)
-      });
+      applySharedDelta({
+        moneyDelta: -Math.floor(stateRef.current.money * 0.6),
+        usersDelta: -Math.floor(stateRef.current.users * 0.6),
+      }, "Defection", null);
       addLog("💀 You defected!");
       setFeedback("😈 You defected! Starting rival company...");
       setTimeout(() => setFeedback(null), 3000);
     } else if (Object.keys(result).length > 0) {
-      // ── Apply the result directly without quirk multiplier distortion ──
-      // Activities already encode failure as negatives or small numbers.
-      // We just apply them as-is and let applyEffect handle difficulty scaling
-      // for negative values only.
-      const cleanResult = {
-        money: result.money || 0,
-        users: result.users || 0,
-        morale: result.morale || 0,
-      };
+      const moneyDelta = result.money || 0;
+      const usersDelta = result.users || 0;
+      const moraleDelta = result.morale || 0;
 
-      // For activity results, only apply difficulty multiplier to negatives.
-      // Positives go through at face value (Activity.jsx already calibrated them).
-      const s = stateRef.current;
-      const m = difficulty.consequenceMultiplier;
+      // Scale negatives by difficulty, pass positives through at face value
+      const scaledMoney  = moneyDelta  < 0 ? Math.round(moneyDelta  * difficulty.consequenceMultiplier) : moneyDelta;
+      const scaledUsers  = usersDelta  < 0 ? Math.round(usersDelta  * difficulty.consequenceMultiplier) : usersDelta;
+      const scaledMorale = moraleDelta < 0 ? Math.round(moraleDelta * difficulty.consequenceMultiplier) : moraleDelta;
 
-      const moneyChange = cleanResult.money < 0
-        ? Math.round(cleanResult.money * m)
-        : cleanResult.money;
-      const userChange = cleanResult.users < 0
-        ? Math.round(cleanResult.users * m)
-        : cleanResult.users;
-      const moraleChange = cleanResult.morale < 0
-        ? Math.round(cleanResult.morale * m)
-        : cleanResult.morale;
+      // Build summary for feed and display
+      const parts = [];
+      if (scaledMoney  !== 0) parts.push(`${scaledMoney  > 0 ? "+" : ""}$${Math.abs(scaledMoney).toLocaleString()}`);
+      if (scaledUsers  !== 0) parts.push(`${scaledUsers  > 0 ? "+" : ""}${scaledUsers} users`);
+      if (scaledMorale !== 0) parts.push(`${scaledMorale > 0 ? "+" : ""}${scaledMorale}% morale`);
+      const statSummary = parts.join(" · ");
+      const positive = isPositiveResult(result);
 
-      const newMoney = Math.max(0, s.money + moneyChange);
-      const newUsers = Math.max(0, s.users + userChange);
-      const newMorale = Math.min(100, Math.max(quirk.moraleFloor, s.morale + moraleChange));
-
-      setMoney(newMoney);
-      setUsers(newUsers);
-      setMorale(newMorale);
-
-      // Show what changed
-      const changes = [];
-      if (moneyChange !== 0) changes.push(`${moneyChange > 0 ? "+" : ""}$${Math.abs(moneyChange).toLocaleString()}`);
-      if (userChange !== 0) changes.push(`${userChange > 0 ? "+" : ""}${userChange} users`);
-      if (moraleChange !== 0) changes.push(`${moraleChange > 0 ? "+" : ""}${moraleChange}% morale`);
-
-      const positive = isPositiveResult(cleanResult);
-      if (changes.length > 0) {
-        setActivityResult({ key, changes: changes.join(" · "), positive });
-        setRecentStatChange({ text: changes.join(" · "), positive });
+      if (parts.length > 0) {
+        setActivityResult({ key, changes: statSummary, positive });
+        setRecentStatChange({ text: statSummary, positive });
         setTimeout(() => { setActivityResult(null); setRecentStatChange(null); }, 4000);
       }
 
-      // Reputation updates
-      if (moneyChange > 5000) setReputation(prev => ({ ...prev, investor: Math.min(100, prev.investor + 5) }));
-      if (userChange > 500) setReputation(prev => ({ ...prev, customer: Math.min(100, prev.customer + 3) }));
-      if (moraleChange > 10) setReputation(prev => ({ ...prev, press: Math.min(100, prev.press + 2) }));
-      if (moneyChange < -5000) setReputation(prev => ({ ...prev, investor: Math.max(0, prev.investor - 5) }));
-      if (userChange < -200) setReputation(prev => ({ ...prev, customer: Math.max(0, prev.customer - 5) }));
+      // Write to Firebase (multiplayer) or local state (solo), and post to feed
+      await applySharedDelta(
+        { moneyDelta: scaledMoney, usersDelta: scaledUsers, moraleDelta: scaledMorale },
+        key,
+        statSummary
+      );
 
-      // Check end conditions
-      if (newMoney <= 0) { endGame("bankrupt"); return; }
-      if (newMorale <= 0) { endGame("morale"); return; }
+      // Solo end condition checks
+      if (isSolo) {
+        const s = stateRef.current;
+        if (Math.max(0, s.money + scaledMoney) <= 0) { endGame("bankrupt"); return; }
+        if (Math.min(100, Math.max(quirk.moraleFloor, s.morale + scaledMorale)) <= 0) { endGame("morale"); return; }
+      }
+
+      // Reputation
+      if (scaledMoney  > 5000) setReputation(prev => ({ ...prev, investor: Math.min(100, prev.investor + 5) }));
+      if (scaledUsers  > 500)  setReputation(prev => ({ ...prev, customer: Math.min(100, prev.customer + 3) }));
+      if (scaledMorale > 10)   setReputation(prev => ({ ...prev, press: Math.min(100, prev.press + 2) }));
+      if (scaledMoney  < -5000) setReputation(prev => ({ ...prev, investor: Math.max(0, prev.investor - 5) }));
+      if (scaledUsers  < -200)  setReputation(prev => ({ ...prev, customer: Math.max(0, prev.customer - 5) }));
     }
 
     addLog(`${isPositiveResult(result) ? "✓" : "✗"} ${key}: ${result.users ? (result.users > 0 ? "+" : "") + result.users + " users " : ""}${result.money ? (result.money > 0 ? "+" : "") + "$" + Math.abs(result.money).toLocaleString() : ""}`);
     startCooldown(key, cooldownSecs);
     if (stackKey) addStack(stackKey);
+  }
+
+  function triggerEvent() {
+    const available = EVENTS.filter(e => !usedEventsRef.current.includes(e.id));
+    if (!available.length) { usedEventsRef.current = []; return; }
+    const pick = available[Math.floor(Math.random() * available.length)];
+    usedEventsRef.current = [...usedEventsRef.current, pick.id];
+    setCurrentEvent(pick);
+    setEventTimeLeft(20);
+    sounds.event();
+    if (pick.tier >= 3) sounds.crisis();
   }
 
   function triggerQuiz() {
@@ -538,11 +585,11 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
     setPitchLoading(true);
     setPitchUsed(true);
     const INVESTORS = [
-      { name: "Marcus Webb", background: "Ex-Goldman Sachs", cares: "unit economics and clear revenue model", dealbreaker: "founders who don't know their numbers" },
-      { name: "Sandra Chen", background: "Ex-Google, early Stripe investor", cares: "product-market fit and user growth", dealbreaker: "vanity metrics without retention" },
-      { name: "Raj Patel", background: "Built and sold 3 startups", cares: "founder grit and market size", dealbreaker: "crowded markets with no differentiation" },
-      { name: "Lisa Torres", background: "Former Y Combinator partner", cares: "speed of iteration and team strength", dealbreaker: "solo founders with no technical co-founder" },
-      { name: "Devon Black", background: "Hedge fund turned angel investor", cares: "defensibility and moat", dealbreaker: "founders who can't explain their competitive advantage" },
+      { name: "Marcus Webb",  background: "Ex-Goldman Sachs",              cares: "unit economics and clear revenue model",    dealbreaker: "founders who don't know their numbers" },
+      { name: "Sandra Chen",  background: "Ex-Google, early Stripe investor", cares: "product-market fit and user growth",     dealbreaker: "vanity metrics without retention" },
+      { name: "Raj Patel",    background: "Built and sold 3 startups",     cares: "founder grit and market size",              dealbreaker: "crowded markets with no differentiation" },
+      { name: "Lisa Torres",  background: "Former Y Combinator partner",   cares: "speed of iteration and team strength",      dealbreaker: "solo founders with no technical co-founder" },
+      { name: "Devon Black",  background: "Hedge fund turned angel investor", cares: "defensibility and moat",                dealbreaker: "founders who can't explain their competitive advantage" },
     ];
     const investor = INVESTORS[Math.floor(Math.random() * INVESTORS.length)];
     try {
@@ -551,7 +598,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          system: `You are ${investor.name}, ${investor.background}. You are judging a startup pitch in a multiplayer business simulation game called Startup Survival. The startup is: ${scenario}. Current stats: $${stateRef.current.money.toLocaleString()} cash, ${stateRef.current.users} users, ${stateRef.current.morale}% team morale. You care most about ${investor.cares}. Your deal-breaker is: ${investor.dealbreaker}. Respond in 3-4 sentences max, in character as this specific investor. Be direct, occasionally harsh, always educational about real business. Vary your responses — sometimes intrigued, sometimes skeptical, sometimes impressed, sometimes brutal. End with exactly one verdict on its own line: DEAL: $[amount]k for [equity]% | COUNTER: [specific counter offer] | PASS: [one brutal specific reason] | MAYBE: [what you need to see before deciding]`,
+          system: `You are ${investor.name}, ${investor.background}. You are judging a startup pitch in a multiplayer business simulation game called Startup Survival. The startup is: ${scenario}. Current stats: $${stateRef.current.money.toLocaleString()} cash, ${stateRef.current.users} users, ${stateRef.current.morale}% team morale. You care most about ${investor.cares}. Your deal-breaker is: ${investor.dealbreaker}. Respond in 3-4 sentences max, in character as this specific investor. End with exactly one verdict on its own line: DEAL: $[amount]k for [equity]% | COUNTER: [specific counter offer] | PASS: [one brutal specific reason] | MAYBE: [what you need to see before deciding]`,
           messages: [{ role: "user", content: pitchText }],
         }),
       });
@@ -569,14 +616,12 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
         setReputation(prev => ({ ...prev, investor: Math.max(0, prev.investor - 5) }));
         sounds.fail();
       } else if (text.includes("COUNTER:")) {
-        applyEffect({ morale: 5 });
-        sounds.action();
+        applyEffect({ morale: 5 }); sounds.action();
       } else if (text.includes("MAYBE:")) {
-        applyEffect({ morale: 10 });
-        sounds.action();
+        applyEffect({ morale: 10 }); sounds.action();
       }
-      addLog(`🦈 Pitch to ${investor.name}: ${text.includes("DEAL:") ? "DEAL!" : text.includes("PASS:") ? "Passed" : text.includes("COUNTER:") ? "Counter offer" : "Maybe"}`);
-    } catch (err) {
+      addLog(`🦈 Pitch to ${investor.name}: ${text.includes("DEAL:") ? "DEAL!" : text.includes("PASS:") ? "Passed" : text.includes("COUNTER:") ? "Counter" : "Maybe"}`);
+    } catch {
       setPitchResponse({ text: "Connection error. Try again.", investor: "Unknown" });
     }
     setPitchLoading(false);
@@ -612,65 +657,65 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
   const quirkData = PERSONALITY_QUIRKS.find(q => q.id === playerData.quirk);
 
   const universalActions = [
-    { key: "Cold Email", emoji: "📧", cooldown: 20, effect: { users: 50 }, stack: "email", desc: "Blast cold emails." },
-    { key: "Network Event", emoji: "🤝", cooldown: 45, effect: { morale: 5, money: 500 }, stack: "network", desc: "Meet an NPC." },
-    { key: "Blog Post", emoji: "📰", cooldown: 60, effect: { users: 30, morale: 3 }, stack: "blog", desc: "Build brand authority." },
-    { key: "A/B Test", emoji: "🧪", cooldown: 90, effect: { users: 100, money: 500 }, stack: "ab", desc: "Data-driven improvements." },
-    { key: "Attack Competitor", emoji: "⚔️", cooldown: 75, effect: { users: 200 }, stack: "attack", desc: "Steal users." },
-    { key: "Pitch Practice", emoji: "🎤", cooldown: 120, effect: { morale: 5 }, stack: "pitch_practice", desc: "Improve pitch score." },
-    { key: "Product Update", emoji: "📦", cooldown: 50, effect: { users: 80, morale: 5 }, stack: "update", desc: "Push an improvement." },
-    { key: "Business Quiz", emoji: "📊", cooldown: 30, effect: {}, stack: "quiz_attempt", desc: "Answer for stat boosts." },
+    { key: "Cold Email",        emoji: "📧", cooldown: 20,  effect: { users: 50 },              stack: "email",         desc: "Blast cold emails." },
+    { key: "Network Event",     emoji: "🤝", cooldown: 45,  effect: { morale: 5, money: 500 },  stack: "network",       desc: "Meet an NPC." },
+    { key: "Blog Post",         emoji: "📰", cooldown: 60,  effect: { users: 30, morale: 3 },   stack: "blog",          desc: "Build brand authority." },
+    { key: "A/B Test",          emoji: "🧪", cooldown: 90,  effect: { users: 100, money: 500 }, stack: "ab",            desc: "Data-driven improvements." },
+    { key: "Attack Competitor", emoji: "⚔️", cooldown: 75,  effect: { users: 200 },             stack: "attack",        desc: "Steal users." },
+    { key: "Pitch Practice",    emoji: "🎤", cooldown: 120, effect: { morale: 5 },              stack: "pitch_practice",desc: "Improve pitch score." },
+    { key: "Product Update",    emoji: "📦", cooldown: 50,  effect: { users: 80, morale: 5 },   stack: "update",        desc: "Push an improvement." },
+    { key: "Business Quiz",     emoji: "📊", cooldown: 30,  effect: {},                         stack: "quiz_attempt",  desc: "Answer for stat boosts." },
   ];
 
   const roleActions = {
     "CEO": [
-      { key: "All-Hands", emoji: "🎯", cooldown: 60, effect: { morale: 10 }, stack: "allhands", desc: "Boost team morale." },
-      { key: "Fire Someone", emoji: "🔥", cooldown: 120, effect: { morale: -5, money: 2000 }, stack: "fire", desc: "Cut dead weight." },
-      { key: "Pivot", emoji: "🔄", cooldown: 300, effect: { morale: 10, users: 300 }, stack: "pivot", desc: "Change direction." },
+      { key: "All-Hands",    emoji: "🎯", cooldown: 60,  effect: { morale: 10 },             stack: "allhands", desc: "Boost team morale." },
+      { key: "Fire Someone", emoji: "🔥", cooldown: 120, effect: { morale: -5, money: 2000 },stack: "fire",     desc: "Cut dead weight." },
+      { key: "Pivot",        emoji: "🔄", cooldown: 300, effect: { morale: 10, users: 300 }, stack: "pivot",    desc: "Change direction." },
     ],
     "CFO": [
-      { key: "Financial Model", emoji: "📈", cooldown: 60, effect: { money: 1000 }, stack: "model", desc: "Preview event impact." },
-      { key: "Emergency Reserve", emoji: "🏦", cooldown: 120, effect: { money: 2000 }, stack: "reserve", desc: "Lock away funds." },
-      { key: "Audit Trail", emoji: "🕵️", cooldown: 90, effect: { morale: 5 }, stack: "audit", desc: "Find the saboteur." },
+      { key: "Financial Model",  emoji: "📈", cooldown: 60,  effect: { money: 1000 }, stack: "model",   desc: "Preview event impact." },
+      { key: "Emergency Reserve",emoji: "🏦", cooldown: 120, effect: { money: 2000 }, stack: "reserve", desc: "Lock away funds." },
+      { key: "Audit Trail",      emoji: "🕵️", cooldown: 90,  effect: { morale: 5 },  stack: "audit",   desc: "Find the saboteur." },
     ],
     "CMO": [
-      { key: "Campaign Blast", emoji: "📢", cooldown: 30, effect: { users: 300, money: -500 }, stack: "campaign", desc: "Targeted blast." },
-      { key: "Brand Refresh", emoji: "🎨", cooldown: 180, effect: { users: 300, morale: 10, money: -1000 }, stack: "refresh", desc: "Reset reputation." },
-      { key: "Fake Virality", emoji: "🤳", cooldown: 150, effect: { users: 500 }, stack: "viral", desc: "50/50 viral stunt." },
+      { key: "Campaign Blast", emoji: "📢", cooldown: 30,  effect: { users: 300, money: -500 },          stack: "campaign", desc: "Targeted blast." },
+      { key: "Brand Refresh",  emoji: "🎨", cooldown: 180, effect: { users: 300, morale: 10, money: -1000},stack: "refresh", desc: "Reset reputation." },
+      { key: "Fake Virality",  emoji: "🤳", cooldown: 150, effect: { users: 500 },                       stack: "viral",    desc: "50/50 viral stunt." },
     ],
     "CTO": [
-      { key: "Ship Fast", emoji: "⚡", cooldown: 30, effect: { users: 150, morale: 5 }, stack: "ship", desc: "Build feature fast." },
-      { key: "Fix Tech Debt", emoji: "🐛", cooldown: 90, effect: { morale: 10, money: 1000 }, stack: "debt", desc: "Prevent crashes." },
-      { key: "Plant Bug", emoji: "🪲", cooldown: 120, effect: { users: 300 }, stack: "plantbug", desc: "Sabotage competitor." },
+      { key: "Ship Fast",     emoji: "⚡", cooldown: 30,  effect: { users: 150, morale: 5 },  stack: "ship",     desc: "Build feature fast." },
+      { key: "Fix Tech Debt", emoji: "🐛", cooldown: 90,  effect: { morale: 10, money: 1000 },stack: "debt",     desc: "Prevent crashes." },
+      { key: "Plant Bug",     emoji: "🪲", cooldown: 120, effect: { users: 300 },              stack: "plantbug", desc: "Sabotage competitor." },
     ],
     "COO": [
-      { key: "Automate Process", emoji: "🤖", cooldown: 150, effect: { money: -2000, morale: 10 }, stack: "automate", desc: "Passive gains." },
-      { key: "Systems Audit", emoji: "🔍", cooldown: 300, effect: { morale: 15 }, stack: "sysaudit", desc: "Reveal saboteur." },
-      { key: "Hire NPC", emoji: "📋", cooldown: 120, effect: { money: -3000, morale: 15, users: 100 }, stack: "hire", desc: "Add passive booster." },
+      { key: "Automate Process", emoji: "🤖", cooldown: 150, effect: { money: -2000, morale: 10 },         stack: "automate", desc: "Passive gains." },
+      { key: "Systems Audit",    emoji: "🔍", cooldown: 300, effect: { morale: 15 },                        stack: "sysaudit", desc: "Reveal saboteur." },
+      { key: "Hire NPC",         emoji: "📋", cooldown: 120, effect: { money: -3000, morale: 15, users: 100},stack: "hire",     desc: "Add passive booster." },
     ],
     "Head of Sales": [
-      { key: "Cold Call", emoji: "📞", cooldown: 20, effect: { money: 2000, users: 50 }, stack: "call", desc: "Direct revenue." },
-      { key: "Enterprise Pitch", emoji: "💼", cooldown: 300, effect: {}, stack: "enterprise", desc: "Trigger investor pitch." },
-      { key: "Flash Sale", emoji: "🎁", cooldown: 180, effect: { money: 5000, users: -100 }, stack: "sale", desc: "Revenue spike." },
+      { key: "Cold Call",      emoji: "📞", cooldown: 20,  effect: { money: 2000, users: 50 }, stack: "call",       desc: "Direct revenue." },
+      { key: "Enterprise Pitch",emoji: "💼", cooldown: 300, effect: {},                        stack: "enterprise", desc: "Trigger investor pitch." },
+      { key: "Flash Sale",     emoji: "🎁", cooldown: 180, effect: { money: 5000, users: -100},stack: "sale",       desc: "Revenue spike." },
     ],
     "Community Manager": [
-      { key: "Host AMA", emoji: "🎉", cooldown: 90, effect: { users: 200, morale: 15, money: -500 }, stack: "ama", desc: "Community love." },
-      { key: "Town Hall", emoji: "🗳️", cooldown: 300, effect: { morale: 20 }, stack: "townhall", desc: "Overrule CEO." },
-      { key: "Personalized Outreach", emoji: "💌", cooldown: 60, effect: { users: 100, morale: 10 }, stack: "outreach", desc: "High retention." },
+      { key: "Host AMA",             emoji: "🎉", cooldown: 90,  effect: { users: 200, morale: 15, money: -500 }, stack: "ama",      desc: "Community love." },
+      { key: "Town Hall",            emoji: "🗳️", cooldown: 300, effect: { morale: 20 },                         stack: "townhall", desc: "Overrule CEO." },
+      { key: "Personalized Outreach",emoji: "💌", cooldown: 60,  effect: { users: 100, morale: 10 },             stack: "outreach", desc: "High retention." },
     ],
   };
 
   const soloRevenueActions = {
-    "CEO": { key: "Close Deal", emoji: "🤝", cooldown: 90, effect: { money: 3000 }, stack: "solo_revenue", desc: "CEO closes a deal directly." },
-    "CFO": { key: "Cost Cutting", emoji: "✂️", cooldown: 60, effect: { money: 2000 }, stack: "solo_revenue", desc: "Cut costs, save money." },
-    "CMO": { key: "Paid Campaign", emoji: "💸", cooldown: 45, effect: { money: 1500, users: 200 }, stack: "solo_revenue", desc: "Run a paid ad campaign." },
-    "CTO": { key: "Freelance Gig", emoji: "💻", cooldown: 120, effect: { money: 4000 }, stack: "solo_revenue", desc: "Take a freelance contract." },
-    "COO": { key: "Optimize Revenue", emoji: "⚙️", cooldown: 90, effect: { money: 2500 }, stack: "solo_revenue", desc: "Operational revenue boost." },
-    "Community Manager": { key: "Sponsorship Deal", emoji: "🎗️", cooldown: 120, effect: { money: 3000, users: 100 }, stack: "solo_revenue", desc: "Land a community sponsor." },
+    "CEO":               { key: "Close Deal",       emoji: "🤝", cooldown: 90,  effect: { money: 3000 },            stack: "solo_revenue", desc: "CEO closes a deal directly." },
+    "CFO":               { key: "Cost Cutting",     emoji: "✂️", cooldown: 60,  effect: { money: 2000 },            stack: "solo_revenue", desc: "Cut costs, save money." },
+    "CMO":               { key: "Paid Campaign",    emoji: "💸", cooldown: 45,  effect: { money: 1500, users: 200 },stack: "solo_revenue", desc: "Run a paid ad campaign." },
+    "CTO":               { key: "Freelance Gig",    emoji: "💻", cooldown: 120, effect: { money: 4000 },            stack: "solo_revenue", desc: "Take a freelance contract." },
+    "COO":               { key: "Optimize Revenue", emoji: "⚙️", cooldown: 90,  effect: { money: 2500 },            stack: "solo_revenue", desc: "Operational revenue boost." },
+    "Community Manager": { key: "Sponsorship Deal", emoji: "🎗️", cooldown: 120, effect: { money: 3000, users: 100},stack: "solo_revenue", desc: "Land a community sponsor." },
   };
 
   const myRoleActions = roleActions[playerData.role] || [];
-  const mySoloRevenueAction = gameConfig.isSolo && soloRevenueActions[playerData.role];
+  const mySoloRevenueAction = isSolo && soloRevenueActions[playerData.role];
   const tierColors = { 1: "#4ade80", 2: "#facc15", 3: "#ff4444", 4: "#a78bfa" };
   const tierLabels = { 1: "🟢 Opportunity", 2: "🟡 Pressure", 3: "🔴 Crisis", 4: "🟣 Wildcard" };
 
@@ -686,6 +731,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
           </p>
           <p style={{ color: "#333", fontSize: 10 }}>{difficulty.label} · {gameConfig.scenario?.name}</p>
           {quirkData && <p style={{ color: "#555", fontSize: 10 }}>{quirkData.label}</p>}
+          {!isSolo && <p style={{ color: "#333", fontSize: 9 }}>🔴 Live · Room {roomCode}</p>}
         </div>
         <div style={{ textAlign: "right" }}>
           <p style={{ color: timeLeft < 60 ? "#ff4444" : "#444", fontSize: 10 }}>TIME LEFT</p>
@@ -706,9 +752,9 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
         {[
-          ["💰", "Cash", `$${money.toLocaleString()}`, money < 3000 ? "#ff4444" : "#4ade80"],
-          ["👥", "Users", users.toLocaleString(), "#60a5fa"],
-          ["😊", "Morale", `${Math.round(morale)}%`, morale < 30 ? "#ff4444" : morale < 60 ? "#facc15" : "#4ade80"],
+          ["💰", "Cash",  `$${money.toLocaleString()}`,       money < 3000 ? "#ff4444" : "#4ade80"],
+          ["👥", "Users", users.toLocaleString(),              "#60a5fa"],
+          ["😊", "Morale",`${Math.round(morale)}%`,           morale < 30 ? "#ff4444" : morale < 60 ? "#facc15" : "#4ade80"],
         ].map(([icon, label, val, color]) => (
           <div key={label} style={{ background: "#111", border: "0.5px solid #222", borderRadius: 8, padding: "8px", textAlign: "center" }}>
             <p style={{ fontSize: 10, color: "#444", textTransform: "uppercase", marginBottom: 3 }}>{icon} {label}</p>
@@ -776,6 +822,20 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
         </div>
       )}
 
+      {/* Multiplayer activity feed */}
+      {!isSolo && activityFeed.length > 0 && (
+        <div style={{ background: "#0a0f0a", border: "0.5px solid #4ade8015", borderRadius: 8, padding: "8px 12px", marginBottom: 8 }}>
+          <p style={{ fontSize: 9, color: "#4ade8060", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>🔴 Team activity</p>
+          {activityFeed.slice(0, 4).map(item => (
+            <p key={item.id} style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>
+              <span style={{ color: ROLE_COLORS[item.role] || "#888" }}>{item.playerName}</span>
+              {" · "}{item.actionKey}
+              {item.statSummary ? <span style={{ color: "#4ade80" }}> {item.statSummary}</span> : ""}
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* Quiz modal */}
       {currentQuiz && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, padding: "1rem" }}>
@@ -784,9 +844,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
             <p style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 14, lineHeight: 1.5 }}>{currentQuiz.q}</p>
             {quizResult ? (
               <div>
-                <p style={{ color: quizResult.correct ? "#4ade80" : "#ff4444", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
-                  {quizResult.correct ? "✓ Correct!" : "✗ Wrong"}
-                </p>
+                <p style={{ color: quizResult.correct ? "#4ade80" : "#ff4444", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{quizResult.correct ? "✓ Correct!" : "✗ Wrong"}</p>
                 <p style={{ color: "#888", fontSize: 11 }}>💡 {quizResult.lesson}</p>
               </div>
             ) : (
@@ -807,13 +865,9 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
       {currentEvent && (
         <div style={{ background: "#1a0a0a", border: `1px solid ${tierColors[currentEvent.tier] || "#333"}50`, borderLeft: `3px solid ${tierColors[currentEvent.tier] || "#333"}`, borderRadius: 12, padding: "1rem", marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <p style={{ fontSize: 9, color: tierColors[currentEvent.tier], textTransform: "uppercase", letterSpacing: 1 }}>
-              {tierLabels[currentEvent.tier] || "Event"}
-            </p>
+            <p style={{ fontSize: 9, color: tierColors[currentEvent.tier], textTransform: "uppercase", letterSpacing: 1 }}>{tierLabels[currentEvent.tier] || "Event"}</p>
             {eventTimeLeft !== null && (
-              <p style={{ fontSize: 11, color: eventTimeLeft <= 5 ? "#ff4444" : "#555", fontFamily: "monospace", fontWeight: 700 }}>
-                {eventTimeLeft}s to decide
-              </p>
+              <p style={{ fontSize: 11, color: eventTimeLeft <= 5 ? "#ff4444" : "#555", fontFamily: "monospace", fontWeight: 700 }}>{eventTimeLeft}s to decide</p>
             )}
           </div>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 12, lineHeight: 1.5, color: "#fff" }}>{currentEvent.text}</p>
@@ -835,10 +889,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
             <p style={{ fontSize: 10, color: "#60a5fa", textTransform: "uppercase", letterSpacing: 1 }}>🦈 Investor Pitch</p>
             <PitchTimer onExpire={() => { if (!pitchLoading) setShowInvestorPitch(false); }} />
           </div>
-          <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>An investor walked in. Pitch your startup. Be specific about your traction, market, and ask.</p>
-          <div style={{ background: "#111", border: "0.5px solid #333", borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
-            <p style={{ fontSize: 9, color: "#555" }}>💡 Tips: mention your users, revenue, and what makes you different. Vague pitches get PASS every time.</p>
-          </div>
+          <p style={{ fontSize: 11, color: "#666", marginBottom: 10 }}>An investor walked in. Pitch your startup.</p>
           <textarea value={pitchText} onChange={e => setPitchText(e.target.value)}
             placeholder="We are building [X] for [Y customers]. We have [Z traction]. We're asking for $[amount] to [goal]..."
             style={{ width: "100%", height: 90, background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 12, padding: "8px", boxSizing: "border-box", resize: "none", outline: "none", marginBottom: 8 }} />
@@ -890,7 +941,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
                 }} roleColor={roleColor} difficulty={gameConfig.difficulty} />
             ))}
             {mySoloRevenueAction && (
-              <ActionButton action={{ ...mySoloRevenueAction, cooldown: mySoloRevenueAction.cooldown }} cooldowns={cooldowns} stacks={stacks}
+              <ActionButton action={mySoloRevenueAction} cooldowns={cooldowns} stacks={stacks}
                 onPress={() => doAction(mySoloRevenueAction.key, mySoloRevenueAction.effect, mySoloRevenueAction.cooldown, mySoloRevenueAction.stack)}
                 roleColor="#facc15" difficulty={gameConfig.difficulty} />
             )}
@@ -907,16 +958,13 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
             ))}
           </div>
 
-          {!gameConfig.isSolo && !defected && (
+          {!isSolo && !defected && (
             <button onClick={() => doAction("Defect & Go Solo", {}, 0, null)}
               style={{ width: "100%", padding: "9px", background: "#1a0808", color: "#ff4444", border: "0.5px solid #ff444430", borderRadius: 8, fontSize: 12, cursor: "pointer", marginBottom: 8 }}>
               💔 Defect & Go Solo
             </button>
           )}
-
-          {defected && (
-            <p style={{ textAlign: "center", color: "#ff4444", fontSize: 12, padding: "8px" }}>😈 You defected. Out-earn your old team to win the Judas Award.</p>
-          )}
+          {defected && <p style={{ textAlign: "center", color: "#ff4444", fontSize: 12, padding: "8px" }}>😈 You defected. Out-earn your old team.</p>}
         </div>
       )}
 
@@ -934,15 +982,13 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
           <p style={{ fontSize: 9, color: "#4ade8050", textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Active stacks</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
             {Object.entries(stacks).map(([k, v]) => (
-              <span key={k} style={{ fontSize: 9, background: "#4ade8010", color: "#4ade80", padding: "2px 7px", borderRadius: 4 }}>
-                {k} ×{v}
-              </span>
+              <span key={k} style={{ fontSize: 9, background: "#4ade8010", color: "#4ade80", padding: "2px 7px", borderRadius: 4 }}>{k} ×{v}</span>
             ))}
           </div>
         </div>
       )}
 
-      {/* Combo unlocked display */}
+      {/* Combos */}
       {comboUnlocked.length > 0 && (
         <div style={{ marginTop: 8, background: "#0f0a1a", border: "0.5px solid #a78bfa30", borderRadius: 8, padding: "8px 12px" }}>
           <p style={{ fontSize: 9, color: "#a78bfa80", textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Combos unlocked</p>
@@ -955,7 +1001,6 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
         </div>
       )}
 
-      {/* Activity modal */}
       {activeActivity && (
         <Activity
           actionKey={activeActivity.key}
@@ -967,7 +1012,7 @@ export default function Game({ gameConfig, playerData, onGameOver }) {
         />
       )}
 
-      <Chat roomCode={gameConfig.roomCode} playerName={playerData.name} playerRole={playerData.role} isSaboteur={playerData.isSaboteur} />
+      <Chat roomCode={roomCode} playerName={playerData.name} playerRole={playerData.role} isSaboteur={playerData.isSaboteur} />
     </div>
   );
 }
