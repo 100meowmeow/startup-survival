@@ -1,40 +1,32 @@
 // netlify/functions/claude-proxy.js
-//
-// Proxies requests to the Anthropic API so the API key never touches the client.
-//
-// Deploy this file to:  netlify/functions/claude-proxy.js
-// (relative to your project root, next to netlify.toml)
-//
-// Set ANTHROPIC_API_KEY in Netlify → Site settings → Environment variables.
-//
-// Expected request body: { system: string, messages: [{role, content}] }
-// Returns Anthropic /v1/messages response JSON directly.
+// Proxies requests to the Anthropic API so the API key stays server-side.
 
 exports.handler = async (event) => {
   // Only allow POST
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
+    return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
+    console.error("ANTHROPIC_API_KEY is not set in environment variables");
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "ANTHROPIC_API_KEY not set in environment variables." }),
+      body: JSON.stringify({ error: "Server configuration error: API key missing" }),
     };
   }
 
   let body;
   try {
     body = JSON.parse(event.body);
-  } catch {
+  } catch (e) {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON body" }) };
   }
 
-  const { system, messages, model = "claude-sonnet-4-20250514", max_tokens = 1024 } = body;
+  const { system, messages, model, max_tokens } = body;
 
   if (!messages || !Array.isArray(messages)) {
-    return { statusCode: 400, body: JSON.stringify({ error: "messages array required" }) };
+    return { statusCode: 400, body: JSON.stringify({ error: "Missing or invalid messages array" }) };
   }
 
   try {
@@ -46,9 +38,9 @@ exports.handler = async (event) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model,
-        max_tokens,
-        ...(system ? { system } : {}),
+        model: model || "claude-haiku-4-5-20251001",
+        max_tokens: max_tokens || 1024,
+        system: system || undefined,
         messages,
       }),
     });
@@ -56,10 +48,11 @@ exports.handler = async (event) => {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("Anthropic API error:", data);
+      console.error("Anthropic API error:", response.status, JSON.stringify(data));
       return {
         statusCode: response.status,
-        body: JSON.stringify({ error: data.error?.message || "Anthropic API error" }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ error: data.error || "Anthropic API error", details: data }),
       };
     }
 
@@ -69,10 +62,11 @@ exports.handler = async (event) => {
       body: JSON.stringify(data),
     };
   } catch (err) {
-    console.error("Proxy error:", err);
+    console.error("Proxy fetch error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Internal proxy error", detail: err.message }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Proxy internal error", message: err.message }),
     };
   }
 };

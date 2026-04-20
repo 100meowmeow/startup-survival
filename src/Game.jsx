@@ -412,8 +412,8 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
         if (drop > 400 && drop < 1000 && !LEGITIMATE_DROPS.some(a => (la||"").includes(a))) {
           broadcastSystemMessage(roomCode, `🔍 $${drop.toLocaleString()} drained with no explanation. Someone check the books.`, "saboteur");
         }
-        if ((m||0) <= 0 && !gameOverFiredRef.current)  { gameOverFiredRef.current=true; broadcastGameOver(roomCode,"bankrupt"); }
-        if ((mo||0) <= 0 && !gameOverFiredRef.current) { gameOverFiredRef.current=true; broadcastGameOver(roomCode,"morale");  }
+        if ((m||0) <= 0 && !gameOverFiredRef.current)  { triggerGameOver("bankrupt"); }
+        if ((mo||0) <= 0 && !gameOverFiredRef.current) { triggerGameOver("morale");  }
       }
 
       prevMoneyRef.current = m||0;
@@ -427,7 +427,7 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
   useEffect(() => {
     if (isSolo) return;
     return subscribeToGameOver(roomCode, reason => {
-      if (!gameOverFiredRef.current) { gameOverFiredRef.current=true; endGame(reason); }
+      if (!gameOverFiredRef.current) { triggerGameOver(reason); }
     });
   }, []);
 
@@ -557,8 +557,8 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(t);
-          if (isSolo) endGame("survived");
-          else if (isHost) broadcastGameOver(roomCode, "survived");
+          if (isSolo) triggerGameOver("survived");
+          else if (isHost) triggerGameOver("survived");
           return 0;
         }
 
@@ -645,12 +645,15 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
       if (!stateRef.current.gameActive) return;
       const idle = Math.floor((Date.now() - lastActionTimeRef.current) / 1000);
       setIdleSeconds(idle);
-      setShowIdleWarning(idle >= 20);
       if (idle >= 30) {
-        applySharedDelta({ moraleDelta: -8 }, "Inactivity", null);
+        // FIX: reset the ref BEFORE setShowIdleWarning so the next tick
+        // reads idle=0 and hides the warning, instead of showing it again
         lastActionTimeRef.current = Date.now();
         setShowIdleWarning(false);
+        applySharedDelta({ moraleDelta: -8 }, "Inactivity", null);
         if (!isSolo) broadcastSystemMessage(roomCode, `😴 Someone on the team is idle. Get moving!`, "warning");
+      } else {
+        setShowIdleWarning(idle >= 20);
       }
     }, 1000);
     return () => clearInterval(t);
@@ -801,13 +804,13 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
     }
     applySharedDelta({ moneyDelta:md, usersDelta:ud, moraleDelta:od }, null, null);
     if (isSolo && !defected) {
-      if (effect.win) { endGame("acquired"); return; }
-      if (Math.max(0, s.money+md) <= 0) { endGame("bankrupt"); return; }
-      if (Math.min(100, Math.max(quirk.moraleFloor, s.morale+od)) <= 0) { endGame("morale"); return; }
+      if (effect.win) { triggerGameOver("acquired"); return; }
+      if (Math.max(0, s.money+md) <= 0) { triggerGameOver("bankrupt"); return; }
+      if (Math.min(100, Math.max(quirk.moraleFloor, s.morale+od)) <= 0) { triggerGameOver("morale"); return; }
     }
     if (defected) {
-      if (Math.max(0, s.rivalMoney+md) <= 0) { endGame("bankrupt"); return; }
-      if (Math.min(100, Math.max(quirk.moraleFloor, s.rivalMorale+od)) <= 0) { endGame("morale"); return; }
+      if (Math.max(0, s.rivalMoney+md) <= 0) { triggerGameOver("bankrupt"); return; }
+      if (Math.min(100, Math.max(quirk.moraleFloor, s.rivalMorale+od)) <= 0) { triggerGameOver("morale"); return; }
     }
     if (md>5000)  setReputation(p=>({...p, investor:Math.min(100,p.investor+5)}));
     if (ud>500)   setReputation(p=>({...p, customer:Math.min(100,p.customer+3)}));
@@ -902,13 +905,13 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
       await applySharedDelta({ moneyDelta:md, usersDelta:ud, moraleDelta:od }, key, summary);
       if (isSolo && !defected) {
         const s = stateRef.current;
-        if (Math.max(0,s.money+md)<=0) { endGame("bankrupt"); return; }
-        if (Math.min(100,Math.max(quirk.moraleFloor,s.morale+od))<=0) { endGame("morale"); return; }
+        if (Math.max(0,s.money+md)<=0) { triggerGameOver("bankrupt"); return; }
+        if (Math.min(100,Math.max(quirk.moraleFloor,s.morale+od))<=0) { triggerGameOver("morale"); return; }
       }
       if (defected) {
         const s = stateRef.current;
-        if (Math.max(0,s.rivalMoney+md)<=0) { endGame("bankrupt"); return; }
-        if (Math.min(100,Math.max(quirk.moraleFloor,s.rivalMorale+od))<=0) { endGame("morale"); return; }
+        if (Math.max(0,s.rivalMoney+md)<=0) { triggerGameOver("bankrupt"); return; }
+        if (Math.min(100,Math.max(quirk.moraleFloor,s.rivalMorale+od))<=0) { triggerGameOver("morale"); return; }
       }
     }
     addLog(`${isPositiveResult(result)?"✓":"✗"} ${key}`);
@@ -962,6 +965,27 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
     ];
     const inv = INVESTORS[Math.floor(Math.random() * INVESTORS.length)];
     const s = stateRef.current;
+
+    // ─── Local fallback judge — used when API is unavailable ─────────
+    function localPitchJudge(text) {
+      const lower = text.toLowerCase();
+      const wordCount = text.trim().split(/\s+/).length;
+      const hasNumbers = /\$[\d,]+|[\d]+[k%]|\d+ users|\d+%/i.test(text);
+      const hasAsk = /ask|raise|invest|funding|seeking/i.test(lower);
+      const hasTraction = /users|customers|revenue|growth|mrr|arr|paying/i.test(lower);
+      const hasMarket = /market|problem|solution|industry/i.test(lower);
+      const score = (wordCount >= 20 ? 1 : 0) + (hasNumbers ? 2 : 0) + (hasAsk ? 1 : 0) + (hasTraction ? 2 : 0) + (hasMarket ? 1 : 0);
+      if (score >= 5) {
+        return { verdict:"DEAL", money: 35000, morale: 20, text:`${inv.name} leans forward. "You know your numbers, you have traction, and the ask is clear. I've heard a lot of pitches today — this one actually made me think. Let's do this."\n\nDEAL: $35k for 8%` };
+      } else if (score >= 3) {
+        return { verdict:"MAYBE", morale: 10, text:`${inv.name} tilts her head. "There's something here, but I need more. Show me the retention numbers and come back with a clearer ask. I'm not saying no."\n\nMAYBE: Bring me 3-month retention data and a revised ask` };
+      } else if (score >= 2) {
+        return { verdict:"COUNTER", morale: 5, text:`${inv.name} taps his pen. "I'll consider a smaller check if you can prove the unit economics. Right now this is more vision than business."\n\nCOUNTER: $10k convertible note, 20% discount, prove CAC under $50` };
+      } else {
+        return { verdict:"PASS", morale: -10, text:`${inv.name} glances at his phone. "I've seen a thousand pitches. This one doesn't tell me why now, why you, or why I should care. Come back with traction."\n\nPASS: No clear traction or differentiation` };
+      }
+    }
+
     try {
       const res = await fetch("/.netlify/functions/claude-proxy", {
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -986,22 +1010,32 @@ Rules:
         }),
       });
 
+      // FIX: detect credit exhaustion (402) and other non-200s, use local fallback
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         console.error("Pitch proxy error:", res.status, errData);
         if (!mountedRef.current) return;
-        setPitchResponse({ text:`${inv.name} had connection trouble. Try again. (${res.status})`, investor:inv.name });
+        // Use local judge instead of "investor left the room"
+        const local = localPitchJudge(pitchText);
+        const result = { text: local.text, investor: inv.name };
+        setPitchResponse(result);
+        if (!isSolo) { await broadcastPitchResult(roomCode, result); await clearPitchStart(roomCode); await clearPitchSuggestions(roomCode); }
+        _applyPitchVerdict(local.verdict, local.money, local.morale, inv);
         if (mountedRef.current) setPitchLoading(false);
         return;
       }
 
       const data = await res.json();
 
-      // Handle API-level errors (e.g. overloaded, auth failure)
+      // FIX: API-level errors (overloaded, auth, credit exhaustion) — use local fallback
       if (data.error || !data.content?.[0]?.text) {
         console.error("Anthropic API error in pitch:", data.error || "no content");
         if (!mountedRef.current) return;
-        setPitchResponse({ text:`${inv.name} stepped out to take a call. The servers are busy — try again in a moment.`, investor:inv.name });
+        const local = localPitchJudge(pitchText);
+        const result = { text: local.text, investor: inv.name };
+        setPitchResponse(result);
+        if (!isSolo) { await broadcastPitchResult(roomCode, result); await clearPitchStart(roomCode); await clearPitchSuggestions(roomCode); }
+        _applyPitchVerdict(local.verdict, local.money, local.morale, inv);
         if (mountedRef.current) setPitchLoading(false);
         return;
       }
@@ -1019,37 +1053,45 @@ Rules:
         /^(DEAL:|PASS:|COUNTER:|MAYBE:)/i.test(l.trim())
       ) || text;
 
-      if (/DEAL:/i.test(verdictLine)) {
-        const mm = verdictLine.match(/\$(\d+)k/i);
-        applyEffect({ money: mm ? parseInt(mm[1]) * 1000 : 50000, morale:20 });
-        setReputation(p=>({...p, investor:Math.min(100,p.investor+20)}));
-        sounds.win?.(); haptic([300]);
-        if (!isSolo) broadcastSystemMessage(roomCode, `🦈 ${inv.name} said DEAL! Funding secured!`, "success");
-        addLog(`🦈 ${inv.name}: DEAL!`);
-      } else if (/PASS:/i.test(verdictLine)) {
-        applyEffect({ morale:-10 });
-        setReputation(p=>({...p, investor:Math.max(0,p.investor-5)}));
-        sounds.fail?.();
-        if (!isSolo) broadcastSystemMessage(roomCode, `🦈 ${inv.name} passed. Back to work.`, "warning");
-        addLog(`🦈 ${inv.name}: Passed`);
-      } else if (/COUNTER:/i.test(verdictLine)) {
-        applyEffect({ morale:5 }); sounds.action?.();
-        addLog(`🦈 ${inv.name}: Counter offer`);
-      } else if (/MAYBE:/i.test(verdictLine)) {
-        applyEffect({ morale:10 }); sounds.action?.();
-        addLog(`🦈 ${inv.name}: Maybe`);
-      } else {
-        // No verdict found — treat as pass with note
-        applyEffect({ morale:-5 });
-        sounds.fail?.();
-        addLog(`🦈 ${inv.name}: No verdict`);
-      }
+      const mm = verdictLine.match(/\$(\d+)k/i);
+      if (/DEAL:/i.test(verdictLine))    { _applyPitchVerdict("DEAL",    mm ? parseInt(mm[1])*1000 : 50000, 20,  inv); }
+      else if (/PASS:/i.test(verdictLine))    { _applyPitchVerdict("PASS",    0, -10, inv); }
+      else if (/COUNTER:/i.test(verdictLine)) { _applyPitchVerdict("COUNTER", 0,   5, inv); }
+      else if (/MAYBE:/i.test(verdictLine))   { _applyPitchVerdict("MAYBE",   0,  10, inv); }
+      else                                     { _applyPitchVerdict("PASS",    0,  -5, inv); }
 
     } catch (err) {
       console.error("submitPitch exception:", err);
-      if (mountedRef.current) setPitchResponse({ text:"Connection error — check your network and try again.", investor:inv.name });
+      if (!mountedRef.current) return;
+      const local = localPitchJudge(pitchText);
+      const result = { text: local.text, investor: inv.name };
+      setPitchResponse(result);
+      if (!isSolo) { await broadcastPitchResult(roomCode, result).catch(()=>{}); }
+      _applyPitchVerdict(local.verdict, local.money, local.morale, inv);
     }
     if (mountedRef.current) setPitchLoading(false);
+  }
+
+  function _applyPitchVerdict(verdict, money, morale, inv) {
+    if (verdict === "DEAL") {
+      applyEffect({ money, morale });
+      setReputation(p=>({...p, investor:Math.min(100,p.investor+20)}));
+      sounds.win?.(); haptic([300]);
+      if (!isSolo) broadcastSystemMessage(roomCode, `🦈 ${inv.name} said DEAL! Funding secured!`, "success");
+      addLog(`🦈 ${inv.name}: DEAL!`);
+    } else if (verdict === "PASS") {
+      applyEffect({ morale: morale || -10 });
+      setReputation(p=>({...p, investor:Math.max(0,p.investor-5)}));
+      sounds.fail?.();
+      if (!isSolo) broadcastSystemMessage(roomCode, `🦈 ${inv.name} passed. Back to work.`, "warning");
+      addLog(`🦈 ${inv.name}: Passed`);
+    } else if (verdict === "COUNTER") {
+      applyEffect({ morale: morale || 5 }); sounds.action?.();
+      addLog(`🦈 ${inv.name}: Counter offer`);
+    } else if (verdict === "MAYBE") {
+      applyEffect({ morale: morale || 10 }); sounds.action?.();
+      addLog(`🦈 ${inv.name}: Maybe`);
+    }
   }
 
   async function submitSuggestion() {
@@ -1058,7 +1100,15 @@ Rules:
     setMySuggestion("");
   }
 
-  function endGame(reason) {
+  // Helper: end game for everyone — host broadcasts, non-host also broadcasts so host catches it
+  function triggerGameOver(reason) {
+    if (gameOverFiredRef.current) return;
+    gameOverFiredRef.current = true;
+    if (!isSolo) {
+      broadcastGameOver(roomCode, reason);
+    }
+    endGame(reason);
+  }
     if (!stateRef.current.gameActive) return;
     setGameActive(false);
     haptic([500]);
@@ -1632,7 +1682,7 @@ Rules:
       />
     </div>
   );
-}
+
 
 function ActionButton({ action, cooldowns, stacks, onPress, roleColor, locked }) {
   const cd = cooldowns[action.key] || 0;

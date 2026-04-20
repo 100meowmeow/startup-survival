@@ -163,19 +163,30 @@ Be scenario-aware and honest. The reason field must be specific to their input, 
   }
 }
 
-// Fallback when AI is unavailable — uses word count heuristic
+// Fallback when AI is unavailable — evaluates quality signals, not just word count
 function _fallbackGrade(prompt) {
-  const wordCount = prompt.trim().split(/\s+/).length;
-  const good = wordCount > 15;
-  return {
-    score: good ? 65 : 35,
-    good,
-    reason: good
-      ? "Your response was detailed enough to be convincing."
-      : "Your response was too brief or vague — more specificity is needed.",
-    lesson: "Specificity wins. Vague answers lose — in pitches, emails, and real business.",
-    statChange: good ? "+100 users" : "-5% morale",
-  };
+  const lower = prompt.toLowerCase();
+  // Extract the actual user content (after the prompt header)
+  const userContentMatch = prompt.match(/Message written: "([^"]+)"|Answer: "([^"]+)"|Speech: "([^"]+)"|Headline: "([^"]+)"|Subject line written: "([^"]+)"/);
+  const userContent = userContentMatch ? (userContentMatch[1] || userContentMatch[2] || userContentMatch[3] || userContentMatch[4] || userContentMatch[5] || "") : "";
+  const words = userContent.trim().split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+
+  // Quality signals that indicate good business writing
+  const hasSpecifics = /\d+|%|\$|users|revenue|growth|customers|mrr|cac|ltv|churn/i.test(userContent);
+  const hasBuzzwords = /synergy|leverage|disrupting|paradigm|ecosystem|blockchain|crush it|hustle|10x/i.test(userContent);
+  const tooShort = wordCount < 8;
+  const tooLong = wordCount > 80;
+  const isBlank = wordCount === 0;
+
+  if (isBlank) return { score: 0, good: false, reason: "You submitted nothing.", lesson: "A blank response communicates nothing — always say something specific.", statChange: "-10% morale" };
+  if (hasBuzzwords) return { score: 25, good: false, reason: "Buzzwords detected — corporate language signals inauthenticity.", lesson: "Specific beats vague. Numbers beat adjectives. Real beats polished.", statChange: "-5% morale" };
+  if (tooShort) return { score: 30, good: false, reason: `Only ${wordCount} words — too brief to be convincing.`, lesson: "Brevity is good, but you need at least a sentence to communicate substance.", statChange: "-5% morale" };
+  if (tooLong && !hasSpecifics) return { score: 35, good: false, reason: `${wordCount} words with no concrete details — length without substance.`, lesson: "More words aren't more convincing. Specifics are.", statChange: "-5% morale" };
+  if (hasSpecifics) return { score: 75, good: true, reason: "Concrete details and specifics make your response credible.", lesson: "Numbers and specifics win. Vague language loses.", statChange: "+100 users" };
+
+  // Reasonable length, no buzzwords, no specifics — marginal pass
+  return { score: 55, good: true, reason: "Reasonable response — could be stronger with specific details.", lesson: "Add numbers and concrete details to make this truly convincing.", statChange: "+50 users" };
 }
 
 const EMAIL_SCENARIOS = [
@@ -2239,7 +2250,13 @@ function AllHandsActivity({ onComplete, scenario, difficulty }) {
 Speech: "${speech}"
 Context: ${profile.tone}
 
-Is it authentic? Specific? Appropriately concise (5-30 words ideal)? Does it match the tone of this type of company? Does it actually motivate?`;
+STRICT grading rules:
+- Length alone does NOT make a speech good. A 50-word generic motivational speech scores LOW.
+- Good speeches are specific to the company's situation, honest, and concrete. Bad speeches are vague, preachy, or could apply to any company.
+- "We're going to crush it" or "believe in yourselves" with no specifics = score 20, good: false.
+- A short but genuine, specific message about the actual situation = score 75+, good: true.
+- Ideal length is 5-30 words. Over 40 words with no specifics is worse than 10 honest words.
+- Does it match the tone of this type of company? Does it actually say something real?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
     setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
