@@ -95,40 +95,133 @@ function randomScenario(excludeId = null) {
 // ─── Tutorial ─────────────────────────────────────────────────────
 function Tutorial({ onDone }) {
   const [step, setStep] = useState(0);
+
   const steps = [
-    { emoji: "💀", title: "Welcome to Startup Survival", body: "Build a startup under pressure. Events hit constantly. Every decision has consequences. Most companies die. That's fine." },
-    { emoji: "🎭", title: "Your role and quirk matter", body: "Each player gets a role and a personality quirk. CEO + Reckless is very different from CEO + Cautious. Quirks affect every outcome — study yours." },
-    { emoji: "⚡", title: "Never stop moving", body: "Use role actions, answer quizzes, run campaigns. The longer you're idle, the more morale drops and cash burns. Inaction is death." },
-    { emoji: "🔮", title: "Discover secret combos", body: "Some action combinations unlock powerful bonuses. Blog posts + networking + pitch practice = a media moment worth thousands of users." },
-    { emoji: "🐀", title: "Watch for the rat", body: "Someone might be the Saboteur. Money going missing? Morale dropping for no reason? Use the Report button in chat to call them out. Majority vote can expose them." },
-    { emoji: "👥", title: "Multiplayer: vote together", body: "Events hit the whole team simultaneously. Everyone votes — majority wins. Ties go to the host. Chat with your team and coordinate fast." },
-    { emoji: "🤝", title: "Multiplayer: the investor pitch", body: "At the midpoint, the host pitches to an investor on behalf of the whole team. Teammates can suggest lines in real time. A good pitch can save a dying company." },
-    { emoji: "😈", title: "Multiplayer: defection", body: "Any player can defect and found a rival company. They take 40% of current stats and compete solo. If their final score beats the team's, Judas wins. Watch your back." },
-    { emoji: "🏆", title: "You're ready", body: "Survive the timer or get acquired to win. Good luck. You'll probably need it." },
+    {
+      emoji: "💀",
+      title: "Welcome to Startup Survival",
+      body: "You're running a startup against a ticking clock. Cash burns every 20 seconds. Morale decays every 15 seconds. Events hit every 30–50 seconds demanding decisions. Most companies die. Your job is to be the exception.",
+      tip: null,
+    },
+    {
+      emoji: "📊",
+      title: "Three stats. All of them matter.",
+      body: "You live and die by Cash 💰, Users 👥, and Morale 😊. Hit zero on cash or morale and it's game over — instantly. Users don't kill you directly, but without them you get no passive revenue and your score tanks.",
+      tip: "💡 Watch the colors. Green = safe. Yellow = warning. Red = act now or die.",
+    },
+    {
+      emoji: "💸",
+      title: "How money actually works",
+      body: "Cash drains automatically (burn rate). You earn it back through actions: Cold Calls bring in $2,000 per hit, Flash Sales spike $4,000+, the investor pitch can land $25,000–$75,000 in one shot. Every 30 seconds you also earn passive revenue based on your user count — 100 users = +$50/tick. Grow your user base early and let it compound.",
+      tip: "💡 Passive revenue is the only income that doesn't require action. Get to 1,000+ users and it starts to matter.",
+    },
+    {
+      emoji: "⚡",
+      title: "Actions have cooldowns — plan ahead",
+      body: "Every action locks you out for 20–300 seconds. Cold Call (20s cooldown) and Campaign Blast (30s) are your fastest cash and user tools. Ship Fast and Blog Post are medium cooldowns with solid returns. Automate Process costs $2,000 up front but unlocks passive income. Never spam one action — rotate.",
+      tip: "💡 While one action cools down, queue another. Dead time = dying company.",
+    },
+    {
+      emoji: "🎭",
+      title: "Your role changes everything",
+      body: "CEO gets morale boosters and pivots. CFO gets financial tools and can spot saboteurs. CMO runs campaigns and viral stunts. CTO ships features and plants bugs. COO automates processes and hires NPCs. Head of Sales closes deals and runs flash sales. Community Manager runs AMAs and sponsorship deals. Play to your role's strengths.",
+      tip: "💡 In solo play, your role also gives you a revenue action only you can use — e.g. CTOs do freelance gigs for $4,000.",
+    },
+    {
+      emoji: "🃏",
+      title: "Quirks change the math",
+      body: "Reckless doubles every outcome — huge upside, brutal downside. Methodical stacks actions 50% faster — best for long games. Lucky has a 30% chance to flip negative events positive. Cautious cuts all outcomes to 60% — safer but slower. Wildcard has a 20% chance to completely reverse any action. Know yours before the first event hits.",
+      tip: "💡 Reckless + Head of Sales = high-variance cash machine. Methodical + COO = the slow-burn win.",
+    },
+    {
+      emoji: "🔥",
+      title: "Events: respond or bleed",
+      body: "Crisis events appear every 30–50 seconds. You get 20 seconds to pick an option before the worst outcome auto-applies with a 50% penalty. Tier 1 (green) events are opportunities. Tier 2 (yellow) add pressure. Tier 3 (red) are emergencies — drop everything. In multiplayer, vote fast: majority wins, host breaks ties.",
+      tip: "💡 Never ignore a red event. The auto-penalty is always worse than any choice you could make.",
+    },
+    {
+      emoji: "🦈",
+      title: "The investor pitch — your biggest moment",
+      body: "Halfway through the game an investor appears. You get 90 seconds to pitch. DEAL gets you $25k–$75k and a morale boost. PASS costs morale. COUNTER and MAYBE give smaller bonuses. Write: who your users are, what traction you have, how much you're asking, and why you'll win. Specific numbers beat vague ambition every time.",
+      tip: "💡 Mention your actual stats: 'We have 3,000 users growing 20% weekly and $12k cash.' Investors in the game respond to real specifics.",
+    },
+    {
+      emoji: "🔮",
+      title: "Stack actions to unlock combos",
+      body: "Repeating certain action combinations unlocks secret combo bonuses worth thousands of users or tens of thousands of dollars. Blog ×3 + Network ×3 + Pitch Practice ×2 = 📰 Media Moment (+1,500 users). Cold Call ×8 + Campaign ×4 + Email ×6 = 🔄 Sales Flywheel (+$5,000 +500 users). The game rewards specialists.",
+      tip: "💡 In multiplayer, stacks are shared across the team — coordinate roles to hit combos faster.",
+    },
+    {
+      emoji: "🐀",
+      title: "The Saboteur — and how to survive them",
+      body: "One player may be secretly working against you. Saboteurs drain money, tank morale, and leak info. Signs: cash drops with no announced action, morale crashing during a quiet period, the same player always voting wrong. CFOs can use Audit Trail to catch them. Use the 🚨 Report button in chat to call a team vote.",
+      tip: "💡 The Saboteur wins if the team fails. They can also defect and found a rival company mid-game.",
+    },
+    {
+      emoji: "😈",
+      title: "Defection — betrayal is a valid strategy",
+      body: "Any player can defect at any time. They keep 40% of current stats and start a rival company with a new name. Their burn rate continues. Their final score is compared against the original team's — if they beat it, they win solo. Defection is brutal early (low stats) but devastating late if the team is already strong.",
+      tip: "💡 If you defect, immediately use COO actions to automate and Head of Sales to generate cash — your burn rate is now your problem alone.",
+    },
+    {
+      emoji: "🏆",
+      title: "How to actually win",
+      body: "Survive the full timer with cash and morale above zero. Your score = cash + (users × 10) + (morale × 100). To maximize it: land the investor pitch, hit a combo bonus, keep morale high (morale is worth the most per point), and don't let burn rate silently drain you. The top score wins in multiplayer.",
+      tip: "💡 Morale at 80% is worth 8,000 score points. Don't neglect it chasing cash.",
+    },
   ];
+
   const s = steps[step];
+
   return (
-    <div style={{ maxWidth: 420, margin: "0 auto", padding: "3rem 1.5rem", textAlign: "center", fontFamily: "system-ui, -apple-system, sans-serif" }}>
-      <div style={{ fontSize: 48, marginBottom: 14 }}>{s.emoji}</div>
-      <h2 style={{ fontSize: 19, fontWeight: 700, marginBottom: 10 }}>{s.title}</h2>
-      <p style={{ color: "#777", fontSize: 13, lineHeight: 1.7, marginBottom: 28 }}>{s.body}</p>
-      <div style={{ display: "flex", gap: 5, justifyContent: "center", marginBottom: 22, flexWrap: "wrap" }}>
+    <div style={{ maxWidth: 440, margin: "0 auto", padding: "2rem 1.5rem", fontFamily: "system-ui, -apple-system, sans-serif", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <p style={{ fontSize: 9, color: "#444", textTransform: "uppercase", letterSpacing: 2, marginBottom: 8 }}>
+          How to Play · {step + 1} of {steps.length}
+        </p>
+        {/* Progress bar */}
+        <div style={{ height: 3, background: "#1a1a1a", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ height: "100%", background: "#ff4444", width: `${((step + 1) / steps.length) * 100}%`, borderRadius: 2, transition: "width 0.3s" }} />
+        </div>
+      </div>
+
+      {/* Content card */}
+      <div style={{ background: "#111", border: "0.5px solid #222", borderRadius: 16, padding: "1.5rem", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 44, textAlign: "center", marginBottom: 16 }}>{s.emoji}</div>
+        <h2 style={{ fontSize: 17, fontWeight: 700, color: "#fff", textAlign: "center", marginBottom: 12, lineHeight: 1.3 }}>{s.title}</h2>
+        <p style={{ color: "#888", fontSize: 13, lineHeight: 1.75, marginBottom: s.tip ? 16 : 0 }}>{s.body}</p>
+        {s.tip && (
+          <div style={{ background: "#0a1a0a", border: "0.5px solid #4ade8030", borderRadius: 8, padding: "10px 12px" }}>
+            <p style={{ color: "#4ade80", fontSize: 12, lineHeight: 1.5 }}>{s.tip}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Dot indicators */}
+      <div style={{ display: "flex", gap: 4, justifyContent: "center", marginBottom: 14, flexWrap: "wrap" }}>
         {steps.map((_, i) => (
-          <div key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: i === step ? "#ff4444" : "#222" }} />
+          <button key={i} onClick={() => setStep(i)} style={{ width: i === step ? 20 : 7, height: 7, borderRadius: 4, background: i === step ? "#ff4444" : i < step ? "#333" : "#1a1a1a", border: "none", cursor: "pointer", padding: 0, transition: "all 0.2s" }} />
         ))}
       </div>
+
+      {/* Navigation */}
       <div style={{ display: "flex", gap: 8 }}>
         {step > 0 && (
-          <button onClick={() => setStep(step - 1)} style={{ flex: 1, padding: "13px", background: "#1a1a1a", color: "#777", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, minHeight: 48 }}>
-            Back
+          <button onClick={() => setStep(step - 1)} style={{ padding: "13px 20px", background: "#1a1a1a", color: "#666", border: "0.5px solid #333", borderRadius: 8, cursor: "pointer", fontSize: 13, minHeight: 48 }}>
+            ← Back
           </button>
         )}
         {step < steps.length - 1
-          ? <button onClick={() => setStep(step + 1)} style={{ flex: 1, padding: "13px", background: "#ff4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700, minHeight: 48 }}>Next →</button>
-          : <button onClick={onDone} style={{ flex: 1, padding: "13px", background: "#ff4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700, minHeight: 48 }}>Let's Go →</button>
+          ? <button onClick={() => setStep(step + 1)} style={{ flex: 1, padding: "13px", background: "#ff4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 700, minHeight: 48 }}>
+              Next →
+            </button>
+          : <button onClick={onDone} style={{ flex: 1, padding: "13px", background: "#ff4444", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 700, minHeight: 48 }}>
+              Let's Play →
+            </button>
         }
       </div>
-      <button onClick={onDone} style={{ marginTop: 14, background: "none", border: "none", color: "#333", fontSize: 11, cursor: "pointer", minHeight: 44 }}>
+      <button onClick={onDone} style={{ marginTop: 10, background: "none", border: "none", color: "#333", fontSize: 11, cursor: "pointer", minHeight: 44, width: "100%" }}>
         Skip tutorial
       </button>
     </div>
@@ -355,40 +448,46 @@ export default function Lobby({ onGameStart }) {
     />
   );
 
-  const ScenarioBlock = () => (
-    <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Startup scenario</p>
-        <span style={{ fontSize: 9, color: TAG_COLORS[scenario.tag], background: "#111", padding: "2px 6px", borderRadius: 4 }}>{scenario.tag}</span>
+  // FIX: these were inline arrow components defined during render, causing remount on every state change.
+  // Now defined as bound render helpers (not arrow components) to avoid React treating them as new component types.
+  function renderScenarioBlock() {
+    return (
+      <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Startup scenario</p>
+          <span style={{ fontSize: 9, color: TAG_COLORS[scenario.tag], background: "#111", padding: "2px 6px", borderRadius: 4 }}>{scenario.tag}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 26 }}>{scenario.emoji}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
+        </div>
+        <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={handleReroll} style={{ flex: 1, padding: "10px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 11, cursor: "pointer", minHeight: 44 }}>
+            {rerollsUsed === 0 ? "🎲 Re-roll (free)" : "🎲 Re-roll again ($0.99)"}
+          </button>
+          <button onClick={() => goToStripe("scenario", roomCodeRef.current)} style={{ flex: 1, padding: "10px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 11, cursor: "pointer", minHeight: 44 }}>
+            💛 Pick mine ($0.99)
+          </button>
+        </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-        <span style={{ fontSize: 26 }}>{scenario.emoji}</span>
-        <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{scenario.name}</span>
-      </div>
-      <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5, marginBottom: 10 }}>{scenario.description}</p>
-      <div style={{ display: "flex", gap: 6 }}>
-        <button onClick={handleReroll} style={{ flex: 1, padding: "10px", background: "#222", color: "#aaa", border: "0.5px solid #333", borderRadius: 6, fontSize: 11, cursor: "pointer", minHeight: 44 }}>
-          {rerollsUsed === 0 ? "🎲 Re-roll (free)" : "🎲 Re-roll again ($0.99)"}
-        </button>
-        <button onClick={() => goToStripe("scenario", roomCodeRef.current)} style={{ flex: 1, padding: "10px", background: "#111", color: "#facc15", border: "0.5px solid #facc1530", borderRadius: 6, fontSize: 11, cursor: "pointer", minHeight: 44 }}>
-          💛 Pick mine ($0.99)
-        </button>
-      </div>
-    </div>
-  );
+    );
+  }
 
-  const GameLengthBlock = () => (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {[5, 10, 15].map(t => (
-        <button key={t} onClick={() => setGameLength(t)} style={{ padding: "10px 16px", background: gameLength === t ? "#ff4444" : "#111", color: gameLength === t ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 12, minHeight: 44 }}>
-          {t} min
+  function renderGameLengthBlock() {
+    return (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {[5, 10, 15].map(t => (
+          <button key={t} onClick={() => setGameLength(t)} style={{ padding: "10px 16px", background: gameLength === t ? "#ff4444" : "#111", color: gameLength === t ? "#fff" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 12, minHeight: 44 }}>
+            {t} min
+          </button>
+        ))}
+        <button onClick={() => goToStripe("min20", roomCodeRef.current)} style={{ padding: "10px 16px", background: gameLength === 20 ? "#facc15" : "#111", color: gameLength === 20 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 12, minHeight: 44 }}>
+          20 min 💛
         </button>
-      ))}
-      <button onClick={() => goToStripe("min20", roomCodeRef.current)} style={{ padding: "10px 16px", background: gameLength === 20 ? "#facc15" : "#111", color: gameLength === 20 ? "#000" : "#666", border: "0.5px solid #333", borderRadius: 6, cursor: "pointer", fontSize: 12, minHeight: 44 }}>
-        20 min 💛
-      </button>
-    </div>
-  );
+      </div>
+    );
+  }
 
   // ─── Room waiting screen ──────────────────────────────────────────
   if (roomData && (isHost || !joining)) {
@@ -443,7 +542,7 @@ export default function Lobby({ onGameStart }) {
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Settings</p>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Game length</p>
-            <div style={{ marginBottom: 16 }}><GameLengthBlock /></div>
+            <div style={{ marginBottom: 16 }}>{ renderGameLengthBlock() }</div>
 
             <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Difficulty</p>
             <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
@@ -556,7 +655,7 @@ export default function Lobby({ onGameStart }) {
 
       {mode === "solo" && (
         <div style={{ textAlign: "left" }}>
-          <ScenarioBlock />
+          { renderScenarioBlock() }
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Difficulty</p>
             {Object.entries(DIFFICULTY_INFO).map(([id, info]) => (
@@ -581,7 +680,7 @@ export default function Lobby({ onGameStart }) {
           </div>
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Game length</p>
-            <GameLengthBlock />
+            { renderGameLengthBlock() }
           </div>
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 16 }}>
             <button onClick={() => setRanked(!ranked)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", width: "100%", minHeight: 44 }}>
@@ -598,11 +697,11 @@ export default function Lobby({ onGameStart }) {
 
       {mode === "host" && !roomData && (
         <div style={{ textAlign: "left" }}>
-          <ScenarioBlock />
+          { renderScenarioBlock() }
           <div style={{ background: "#1a1a1a", border: "0.5px solid #333", borderRadius: 12, padding: "1.25rem", marginBottom: 10 }}>
             <p style={{ color: "#555", fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Settings</p>
             <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Game length</p>
-            <div style={{ marginBottom: 16 }}><GameLengthBlock /></div>
+            <div style={{ marginBottom: 16 }}>{ renderGameLengthBlock() }</div>
             <p style={{ fontSize: 11, color: "#666", marginBottom: 8 }}>Difficulty</p>
             <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
               {Object.entries(DIFFICULTY_INFO).map(([id, info]) => (

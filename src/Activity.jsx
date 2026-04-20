@@ -48,18 +48,37 @@ function TimerRing({ seconds, total, color = "#ff4444" }) {
   );
 }
 
-function Lesson({ text, isGood, statChange }) {
+// ─── LESSON COMPONENT — shows outcome, reason (why), and business principle ───
+function Lesson({ text, isGood, statChange, reason }) {
   return (
-    <div style={{ background: isGood ? "#0a1a0a" : "#1a0808", border: `0.5px solid ${isGood ? "#4ade8050" : "#ff444450"}`, borderRadius: 10, padding: "10px 14px", marginTop: 10 }}>
-      {statChange && (
-        <p style={{ color: isGood ? "#4ade80" : "#ff4444", fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
-          {isGood ? "📈" : "📉"} {statChange}
+    <div style={{
+      background: isGood ? "#0a1a0a" : "#1a0808",
+      border: `0.5px solid ${isGood ? "#4ade8050" : "#ff444450"}`,
+      borderRadius: 10,
+      padding: "12px 14px",
+      marginTop: 10,
+    }}>
+      {/* Outcome label + stat change */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <p style={{ color: isGood ? "#4ade80" : "#ff4444", fontSize: 13, fontWeight: 700 }}>
+          {isGood ? "✓ Nice work." : "✗ Not quite."}
+        </p>
+        {statChange && (
+          <p style={{ color: isGood ? "#4ade80" : "#ff4444", fontSize: 13, fontWeight: 700 }}>
+            {statChange}
+          </p>
+        )}
+      </div>
+      {/* WHY — specific to what they did */}
+      {reason && (
+        <p style={{ color: "#ccc", fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>
+          {reason}
         </p>
       )}
-      <p style={{ color: isGood ? "#4ade80" : "#ff4444", fontSize: 12, fontWeight: 700, marginBottom: 3 }}>
-        {isGood ? "✓ Nice work." : "✗ Not great."}
+      {/* General business principle */}
+      <p style={{ color: "#666", fontSize: 11, lineHeight: 1.5 }}>
+        💡 {text}
       </p>
-      <p style={{ color: "#888", fontSize: 11, lineHeight: 1.5 }}>💡 {text}</p>
     </div>
   );
 }
@@ -84,23 +103,79 @@ function useCountdown(total, onExpire, active = true) {
   return timeLeft;
 }
 
+// ─── gradeWithAI — returns { score, good, reason, lesson, statChange } ───────
 async function gradeWithAI(prompt) {
   try {
     const res = await fetch("/.netlify/functions/claude-proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        system: "You are a strict but fair business judge in a startup simulation game. Grade the player's response. Reply with ONLY a JSON object like this: {\"score\": 0-100, \"good\": true/false, \"lesson\": \"one educational sentence about real business\", \"statChange\": \"what changed e.g. +200 users, +$500\"}. Be scenario-aware. No other text.",
+        system: `You are a strict but fair business judge in a startup simulation game. Grade the player's response.
+
+Reply with ONLY a valid JSON object. No markdown, no backticks, no preamble.
+
+Format:
+{
+  "score": 0-100,
+  "good": true or false,
+  "reason": "One specific sentence explaining exactly why this succeeded or failed — reference what they actually wrote or chose",
+  "lesson": "One educational sentence about the real business principle at play",
+  "statChange": "e.g. +200 users or -$500 or +10% morale"
+}
+
+Be scenario-aware and honest. The reason field must be specific to their input, not generic.`,
         messages: [{ role: "user", content: prompt }],
       }),
     });
+
+    if (!res.ok) {
+      console.error("gradeWithAI proxy error:", res.status);
+      return _fallbackGrade(prompt);
+    }
+
     const data = await res.json();
-    const text = data.content?.[0]?.text || "{}";
-    const clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch {
-    return { score: 50, good: true, lesson: "Keep iterating on your strategy.", statChange: "+100 users" };
+
+    if (data.error || !data.content?.[0]?.text) {
+      console.error("gradeWithAI API error:", data.error || "no content field");
+      return _fallbackGrade(prompt);
+    }
+
+    const raw = data.content[0].text.trim().replace(/```json|```/g, "").trim();
+
+    // Extract JSON even if there's stray text around it
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("gradeWithAI: no JSON found:", raw.slice(0, 200));
+      return _fallbackGrade(prompt);
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      score:     typeof parsed.score === "number" ? parsed.score : 50,
+      good:      typeof parsed.good === "boolean" ? parsed.good : parsed.score >= 60,
+      reason:    parsed.reason    || (parsed.good ? "Solid execution." : "Didn't land — try a different approach."),
+      lesson:    parsed.lesson    || "Keep iterating on your strategy.",
+      statChange: parsed.statChange || (parsed.good ? "+100 users" : "-5% morale"),
+    };
+  } catch (err) {
+    console.error("gradeWithAI exception:", err);
+    return _fallbackGrade(prompt);
   }
+}
+
+// Fallback when AI is unavailable — uses word count heuristic
+function _fallbackGrade(prompt) {
+  const wordCount = prompt.trim().split(/\s+/).length;
+  const good = wordCount > 15;
+  return {
+    score: good ? 65 : 35,
+    good,
+    reason: good
+      ? "Your response was detailed enough to be convincing."
+      : "Your response was too brief or vague — more specificity is needed.",
+    lesson: "Specificity wins. Vague answers lose — in pitches, emails, and real business.",
+    statChange: good ? "+100 users" : "-5% morale",
+  };
 }
 
 const EMAIL_SCENARIOS = [
@@ -377,7 +452,7 @@ const AUTOMATE_OPTIONS = [
   { id: "social", label: "📱 All social media posts", risk: "Medium risk — feels inauthentic", good: false, lesson: "Fully automated social feels robotic. Schedule posts but keep engagement human." },
 ];
 
-// ─── ACTIVITIES ───────────────────────────────────────────────────────────
+// ─── ACTIVITIES ───────────────────────────────────────────────────────────────
 
 function ColdEmailActivity({ onComplete, scenario, difficulty }) {
   const profile = getScenarioProfile(scenario?.id);
@@ -395,7 +470,7 @@ function ColdEmailActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !subject.trim() || !tone) {
-      setResult({ good: false, lesson: "A cold email needs a subject line and a tone. Sending blank emails is worse than not sending.", statChange: "-30 users" });
+      setResult({ good: false, reason: "You didn't write a subject line or pick a tone before time ran out.", lesson: "A cold email needs a subject line and a tone. Sending blank emails is worse than not sending.", statChange: "-30 users" });
       setTimeout(() => onComplete({ users: -30 }), 3500); return;
     }
     setLoading(true);
@@ -408,12 +483,12 @@ Scenario context: ${profile.email_tip}
 Best tones for this audience: ${emailScenario.bestTones.join(", ")}
 Is this scenario a bad fit for this audience: ${isBadScenario ? "YES — this product would seem scammy or inappropriate to this audience" : "No"}
 
-Grade harshly but fairly. Consider: does the subject line create curiosity? Is it the right length (2-8 words ideal)? Does the tone match the audience AND the scenario type? A medical startup using a playful tone to healthcare workers should score low. A rat app using professional tone to college students should score low.`;
+Grade harshly but fairly. Consider: does the subject line create curiosity? Is it the right length (2-8 words ideal)? Does the tone match the audience AND the scenario type?`;
 
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good
       ? { users: 200 + Math.floor(grade.score * 2), money: 300 }
       : { users: Math.max(-100, grade.score - 50) }
@@ -468,7 +543,7 @@ Grade harshly but fairly. Consider: does the subject line create curiosity? Is i
         Send →
       </button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI grading your email...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -490,7 +565,7 @@ function BlogPostActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !title.trim() || !angle || !target) {
-      setResult({ good: false, lesson: "Content with no direction gets no readers. Always know your angle and audience.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't complete the post — missing title, angle, or target audience.", lesson: "Content with no direction gets no readers. Always know your angle and audience.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     setLoading(true);
@@ -500,11 +575,11 @@ Angle: ${angle}
 Target reader: ${target}
 Scenario context: ${profile.tone}
 
-Consider: Is the title compelling? Does it create curiosity or promise value? Is the angle appropriate for the scenario type (e.g., a chaos startup doing thought leadership is ironic-funny, a medical startup doing hot takes might be inappropriate)? Does it match the target reader? 3-10 words is ideal length. Numbers in titles boost CTR. Questions work for some audiences. Grade on quality of actual idea, not just format.`;
+Consider: Is the title compelling? Does it create curiosity or promise value? Is the angle appropriate for the scenario type? Does it match the target reader? 3-10 words is ideal length.`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good
       ? { users: 150 + Math.floor(grade.score * 3), morale: 8 }
       : { users: 20 }
@@ -538,7 +613,7 @@ Consider: Is the title compelling? Does it create curiosity or promise value? Is
       </div>
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#333", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Publish →</button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI reviewing your post...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -559,11 +634,20 @@ function NetworkingActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !line) {
-      setResult({ good: false, lesson: "Hesitation reads as disinterest. Confident specific openers always beat generic ones.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You hesitated and the moment passed. Networking requires confident openers.", lesson: "Hesitation reads as disinterest. Confident specific openers always beat generic ones.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: line.good, lesson: line.good ? `${npc.name} loved it. ${npc.personality} Knowing your audience is everything.` : `${npc.name} walked away. Dealbreaker: ${npc.dealbreaker}. Research who you're talking to first.`, statChange: line.good ? "+$1,000 · +100 users · +10% morale" : "-5% morale" });
-    sounds[line.good ? "success" : "fail"]();
+    setResult({
+      good: line.good,
+      reason: line.good
+        ? `${npc.name} responded well — that opener matched their style (${npc.personality.toLowerCase()}).`
+        : `${npc.name} shut down. Their dealbreaker is ${npc.dealbreaker} and your opener triggered it.`,
+      lesson: line.good
+        ? `${npc.name} loved it. Knowing your audience is everything.`
+        : `${npc.name} walked away. Research who you're talking to first.`,
+      statChange: line.good ? "+$1,000 · +100 users · +10% morale" : "-5% morale",
+    });
+    sounds[line.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(line.good ? { money: 1000, morale: 10, users: 100 } : { morale: -5 }), 3500);
   }
 
@@ -595,7 +679,7 @@ function NetworkingActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -615,7 +699,7 @@ function AttackActivity({ onComplete, scenario, difficulty }) {
 
   function handleClick() {
     if (done) return;
-    sounds.action();
+    sounds.action?.();
     clicksRef.current += 1;
     setClicks(clicksRef.current);
     moveTarget();
@@ -629,9 +713,17 @@ function AttackActivity({ onComplete, scenario, difficulty }) {
     const isChaos = profile.type === "chaos";
     const threshold = difficulty === "shark" ? 18 : difficulty === "veteran" ? 14 : 10;
     const good = isChaos ? c >= threshold * 0.7 : c >= threshold;
-    const statChange = good ? `+${c * 25} users · +10% morale` : `-100 users · -5% morale`;
-    setResult({ good, lesson: good ? `${c} hits! Aggressive competitive moves compound over time. ${isChaos ? "In your market, weirdly, chaos works." : "Consistent pressure beats one-off attacks."}` : "Too slow. Half-measures backfire. Your competitor retaliated.", statChange });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `${c} hits landed — enough sustained pressure to pull real users from the competitor.`
+        : `Only ${c} hit${c !== 1 ? "s" : ""} — not enough to make a dent. Your competitor barely noticed.`,
+      lesson: good
+        ? `${c} hits! Aggressive competitive moves compound over time. ${isChaos ? "In your market, weirdly, chaos works." : "Consistent pressure beats one-off attacks."}`
+        : "Too slow. Half-measures backfire. Your competitor retaliated.",
+      statChange: good ? `+${c * 25} users · +10% morale` : `-100 users · -5% morale`,
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { users: c * 25, morale: 10 } : { users: -100, morale: -5 }), 3500);
   }
 
@@ -650,7 +742,7 @@ function AttackActivity({ onComplete, scenario, difficulty }) {
         )}
         <p style={{ position: "absolute", bottom: 8, width: "100%", textAlign: "center", fontSize: 16, fontWeight: 700, color: "#ff4444" }}>{clicks} hits</p>
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -684,7 +776,7 @@ function ShipFastActivity({ onComplete, difficulty }) {
 
   function clickBug(id) {
     if (done || fixedRef.current.includes(id)) return;
-    sounds.action();
+    sounds.action?.();
     fixedRef.current = [...fixedRef.current, id];
     setFixed([...fixedRef.current]);
   }
@@ -695,9 +787,21 @@ function ShipFastActivity({ onComplete, difficulty }) {
     setDone(true);
     const count = fixedRef.current.length;
     const good = count >= 2;
-    const statChange = count === 3 ? "+200 users · +10% morale" : count === 2 ? "+100 users" : "-100 users · -10% morale";
-    setResult({ good, lesson: count === 3 ? "Perfect ship! Every unfixed bug is technical debt that compounds." : count === 2 ? "Almost clean. That one unfixed bug will appear at the worst time." : "Shipped with bugs. This triggers crashes and user churn.", statChange });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: count === 3
+        ? "All 3 bugs caught before shipping — clean release."
+        : count === 2
+        ? `You missed 1 bug. It's in production now and will surface at the worst possible moment.`
+        : `You shipped with ${3 - count} unfixed bug${3 - count > 1 ? "s" : ""}. Expect crashes and churn.`,
+      lesson: count === 3
+        ? "Perfect ship! Every unfixed bug is technical debt that compounds."
+        : count === 2
+        ? "Almost clean. That one unfixed bug will appear at the worst time."
+        : "Shipped with bugs. This triggers crashes and user churn.",
+      statChange: count === 3 ? "+200 users · +10% morale" : count === 2 ? "+100 users" : "-100 users · -10% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(count === 3 ? { users: 200, morale: 10 } : count === 2 ? { users: 100 } : { users: -100, morale: -10 }), 3500);
   }
 
@@ -729,7 +833,7 @@ function ShipFastActivity({ onComplete, difficulty }) {
       {!done && fixed.length === 3 && (
         <button onClick={() => finish()} style={{ width: "100%", padding: "9px", background: "#4ade80", color: "#000", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Ship It →</button>
       )}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -742,6 +846,7 @@ function FixTechDebtActivity({ onComplete, difficulty }) {
       nodes: ["API Gateway", "Auth Service", "Database", "Cache", "Frontend"],
       correct: [[0,1],[1,2],[2,3],[0,4]],
       hint: "API Gateway → Auth → DB → Cache, Gateway → Frontend",
+      debtItems: [2, 3],
     },
     {
       title: "Identify which components have tech debt",
@@ -762,15 +867,28 @@ function FixTechDebtActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || selected.length === 0) {
-      setResult({ good: false, lesson: "Not addressing tech debt lets it compound silently. Every skipped fix adds to your crash risk.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You ran out of time without flagging any debt.", lesson: "Not addressing tech debt lets it compound silently. Every skipped fix adds to your crash risk.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const correct = debtSet.debtItems || [];
     const hits = selected.filter(i => correct.includes(i)).length;
     const misses = selected.filter(i => !correct.includes(i)).length;
     const good = hits >= 2 && misses === 0;
-    setResult({ good, lesson: good ? "Great debt identification. Tech debt compounds like financial debt — address it early." : misses > 0 ? "You flagged healthy components as debt. Premature refactoring wastes engineering time." : "Missed some debt. The legacy components you left will cause crashes later.", statChange: good ? "+$1,000 · +10% morale" : "-5% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: misses > 0
+        ? `You flagged ${misses} healthy component${misses > 1 ? "s" : ""} as debt. Refactoring working code wastes sprint time.`
+        : hits < 2
+        ? `You only caught ${hits} of ${correct.length} debt items. The ones you missed will cause crashes later.`
+        : "All debt correctly identified with no false positives.",
+      lesson: good
+        ? "Great debt identification. Tech debt compounds like financial debt — address it early."
+        : misses > 0
+        ? "You flagged healthy components as debt. Premature refactoring wastes engineering time."
+        : "Missed some debt. The legacy components you left will cause crashes later.",
+      statChange: good ? "+$1,000 · +10% morale" : "-5% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { money: 1000, morale: 10 } : { morale: -5 }), 3500);
   }
 
@@ -795,7 +913,7 @@ function FixTechDebtActivity({ onComplete, difficulty }) {
           Address Debt →
         </button>
       )}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -820,12 +938,19 @@ function ABTestActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !pick) {
-      setResult({ good: false, lesson: "Indecision in A/B testing wastes your sample size.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't pick a version before time ran out.", lesson: "Indecision in A/B testing wastes your sample size.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const correct = pick === "a" ? !!test.a.wins : !!test.b.wins;
-    setResult({ good: correct, lesson: test.lesson, statChange: correct ? "+150 users · +$500" : "+30 users" });
-    sounds[correct ? "success" : "fail"]();
+    setResult({
+      good: correct,
+      reason: correct
+        ? `Correct — Version ${pick.toUpperCase()} wins in practice. Good data instinct.`
+        : `Wrong call. Version ${pick === "a" ? "B" : "A"} actually wins. The data consistently shows this.`,
+      lesson: test.lesson,
+      statChange: correct ? "+150 users · +$500" : "+30 users",
+    });
+    sounds[correct ? "success" : "fail"]?.();
     setTimeout(() => onComplete(correct ? { users: 150, money: 500 } : { users: 30 }), 3500);
   }
 
@@ -845,7 +970,7 @@ function ABTestActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -871,11 +996,18 @@ function PitchPracticeActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !opt) {
-      setResult({ good: false, lesson: "Freezing on an investor objection is worse than a wrong answer.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You froze on the objection. Silence in a pitch is lethal.", lesson: "Freezing on an investor objection is worse than a wrong answer.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: opt.good, lesson: q.lesson, statChange: opt.good ? "+12% morale" : "-5% morale" });
-    sounds[opt.good ? "success" : "fail"]();
+    setResult({
+      good: opt.good,
+      reason: opt.good
+        ? "Strong answer — you addressed the objection with evidence, not reassurance."
+        : "Weak answer — investors need specifics. Reassurances without data don't move them.",
+      lesson: q.lesson,
+      statChange: opt.good ? "+12% morale" : "-5% morale",
+    });
+    sounds[opt.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(opt.good ? { morale: 12 } : { morale: -5 }), 3500);
   }
 
@@ -897,7 +1029,7 @@ function PitchPracticeActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -915,7 +1047,7 @@ function DefectActivity({ onComplete }) {
     const t = setInterval(() => {
       c--;
       setCountdown(c);
-      if (c <= 0) { clearInterval(t); sounds.defect(); onComplete({ defect: true }); }
+      if (c <= 0) { clearInterval(t); sounds.defect?.(); onComplete({ defect: true }); }
     }, 1000);
   }
 
@@ -969,14 +1101,21 @@ function MathActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut && !input.trim()) {
-      setResult({ good: false, lesson: q.lesson, statChange: "-5% morale" });
+      setResult({ good: false, reason: "You ran out of time without answering.", lesson: q.lesson, statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const val = parseFloat(input.replace(/[^0-9.]/g, ""));
     const tolerance = q.tolerance || 0;
     const correct = Math.abs(val - q.answer) <= (tolerance || q.answer * 0.05);
-    setResult({ good: correct, lesson: correct ? `Correct! ${q.lesson}` : `Answer was ${q.answer}${q.unit}. ${q.lesson}`, statChange: correct ? "+$2,000 · +10% morale" : "-5% morale" });
-    sounds[correct ? "success" : "fail"]();
+    setResult({
+      good: correct,
+      reason: correct
+        ? `Correct! The answer is ${q.answer}${q.unit}.`
+        : `Wrong — the answer is ${q.answer}${q.unit}. You answered ${val || "nothing"}.`,
+      lesson: q.lesson,
+      statChange: correct ? "+$2,000 · +10% morale" : "-5% morale",
+    });
+    sounds[correct ? "success" : "fail"]?.();
     setTimeout(() => onComplete(correct ? { money: 2000, morale: 10 } : { morale: -5 }), 3500);
   }
 
@@ -995,7 +1134,7 @@ function MathActivity({ onComplete, difficulty }) {
           style={{ flex: 1, padding: "10px 12px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 14, outline: "none" }} />
         {!submitted && <button onClick={() => submit(false)} style={{ padding: "10px 16px", background: "#4ade80", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>→</button>}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1025,14 +1164,23 @@ function DrawingActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (!hasDrawn) {
-      setResult({ good: false, lesson: "You drew nothing. Blank pitches get blank responses.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You drew nothing. A blank canvas communicates nothing.", lesson: "Blank pitches get blank responses.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const descLower = description.toLowerCase();
     const keywordMatch = billionaire.keywords.some(k => descLower.includes(k));
     const good = keywordMatch || Math.random() > 0.45;
-    setResult({ good, lesson: good ? `The AI sees ${billionaire.name}! Great visual storytelling. Personal branding = immediate recognition.` : `Hmm. Not quite ${billionaire.name}. Hint: try drawing ${billionaire.hints.slice(0,2).join(" or ")}.`, statChange: good ? "+20% morale · +200 users" : "+5% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `The AI recognizes ${billionaire.name} — you captured the key visual cues.`
+        : `Didn't read as ${billionaire.name}. Try including: ${billionaire.hints.slice(0, 2).join(" or ")}.`,
+      lesson: good
+        ? `Great visual storytelling. Personal branding = immediate recognition.`
+        : `Hint: try drawing ${billionaire.hints.slice(0,2).join(" or ")}.`,
+      statChange: good ? "+20% morale · +200 users" : "+5% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { morale: 20, users: 200 } : { morale: 5 }), 3500);
   }
 
@@ -1056,7 +1204,7 @@ function DrawingActivity({ onComplete, difficulty }) {
           <button onClick={submit} style={{ flex: 1, padding: "7px", background: "#f472b6", color: "#000", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Submit →</button>
         )}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1085,8 +1233,17 @@ function FinancialModelActivity({ onComplete, difficulty }) {
     const burnOff = Math.abs(burn - target.burn) / target.burn;
     const avgOff = (cacOff + ltvOff + burnOff) / 3;
     const good = avgOff < 0.25;
-    setResult({ good, lesson: good ? `Great estimates! Real: CAC $${target.cac}, LTV $${target.ltv}, burn $${target.burn.toLocaleString()}/mo. Knowing these lets you predict event impact.` : `Off by too much. Real: CAC $${target.cac}, LTV $${target.ltv}, burn $${target.burn.toLocaleString()}/mo. These are the heartbeat of your company.`, statChange: good ? "+$2,000 · +10% morale" : "-5% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `Your estimates were within 25% on all three metrics — good financial instincts.`
+        : `You were off by an average of ${Math.round(avgOff * 100)}%. Real numbers: CAC $${target.cac}, LTV $${target.ltv}, burn $${target.burn.toLocaleString()}/mo.`,
+      lesson: good
+        ? `Great estimates! Knowing these lets you predict event impact before it happens.`
+        : `These are the heartbeat of your company. Know them cold.`,
+      statChange: good ? "+$2,000 · +10% morale" : "-5% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { money: 2000, morale: 10 } : { morale: -5 }), 3500);
   }
 
@@ -1111,7 +1268,7 @@ function FinancialModelActivity({ onComplete, difficulty }) {
         </div>
       ))}
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#4ade80", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Submit Model →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1133,8 +1290,21 @@ function AuditTrailActivity({ onComplete, difficulty }) {
     const correct = suspiciousIdx.filter(i => selected.includes(i)).length;
     const falsePos = selected.filter(i => !suspiciousIdx.includes(i)).length;
     const good = correct >= suspiciousIdx.length && falsePos === 0;
-    setResult({ good, lesson: good ? "Perfect audit. Every anomaly found, no false accusations. Good CFOs protect without creating paranoia." : falsePos > 0 ? "False accusations damage team trust. Verify before flagging." : "You missed suspicious entries. Every undetected fraud compounds.", statChange: good ? "+$1,000 · +15% morale" : "-5% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? "Every anomaly found with no false accusations — perfect audit."
+        : falsePos > 0
+        ? `You flagged ${falsePos} legitimate transaction${falsePos > 1 ? "s" : ""} as suspicious. False accusations damage team trust.`
+        : `You missed ${suspiciousIdx.length - correct} suspicious entry${suspiciousIdx.length - correct > 1 ? "ies" : ""}. Every undetected fraud compounds.`,
+      lesson: good
+        ? "Good CFOs protect without creating paranoia."
+        : falsePos > 0
+        ? "Verify before flagging. False accusations damage team trust."
+        : "Every undetected fraud compounds.",
+      statChange: good ? "+$1,000 · +15% morale" : "-5% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { money: 1000, morale: 15 } : { morale: -5 }), 3500);
   }
 
@@ -1161,7 +1331,7 @@ function AuditTrailActivity({ onComplete, difficulty }) {
         ))}
       </div>
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#4ade80", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Submit Audit →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1181,8 +1351,21 @@ function EmergencyReserveActivity({ onComplete, difficulty }) {
     const tooMuch = amount > burnRate * 0.65;
     const tooLittle = amount < nextEventCost * 0.8;
     const good = !tooMuch && !tooLittle;
-    setResult({ good, lesson: good ? `Smart reserve. $${amount.toLocaleString()} locked — covers next event without starving operations.` : tooMuch ? `Too much locked. Burn rate $${burnRate.toLocaleString()}/mo — that reserve kills liquidity.` : `Too little. Next event could cost up to $${nextEventCost.toLocaleString()}.`, statChange: good ? `+$${amount.toLocaleString()} protected · +5% morale` : "-5% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `$${amount.toLocaleString()} locked — enough to cover the next event without starving operations.`
+        : tooMuch
+        ? `$${amount.toLocaleString()} is more than 65% of your burn rate. That kills your liquidity.`
+        : `$${amount.toLocaleString()} won't cover the next event which could cost up to $${nextEventCost.toLocaleString()}.`,
+      lesson: good
+        ? `Smart reserve. Covers next event without starving operations.`
+        : tooMuch
+        ? `Too much locked. Burn rate $${burnRate.toLocaleString()}/mo — that reserve kills liquidity.`
+        : `Too little. Next event could cost up to $${nextEventCost.toLocaleString()}.`,
+      statChange: good ? `+$${amount.toLocaleString()} protected · +5% morale` : "-5% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { money: amount, morale: 5 } : { morale: -5 }), 3500);
   }
 
@@ -1210,7 +1393,7 @@ function EmergencyReserveActivity({ onComplete, difficulty }) {
         <input type="range" min={500} max={20000} step={500} value={amount} onChange={e => !submitted && setAmount(Number(e.target.value))} style={{ width: "100%" }} />
       </div>
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#4ade80", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Lock It Away →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1237,7 +1420,7 @@ function CampaignBlastActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !headline.trim()) {
-      setResult({ good: false, lesson: "No headline = no campaign.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No headline submitted — campaign never launched.", lesson: "No headline = no campaign.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     setLoading(true);
@@ -1246,11 +1429,11 @@ Headline: "${headline}"
 Good headline style for this audience: ${persona.good_headline_style}
 Scenario type: ${profile.type}
 
-Is the headline compelling for this specific audience? Does it speak to what they actually want? Is it scannable in 3 seconds? Does it make sense for the product type? Be scenario-aware — a luxury toilet paper brand needs a different tone than a medical startup. Grade harshly.`;
+Is the headline compelling for this specific audience? Does it speak to what they actually want? Is it scannable in 3 seconds? Does it make sense for the product type?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good ? { users: 300 + Math.floor(grade.score * 2), money: -500 } : { users: 30, money: -500 }), 3500);
   }
 
@@ -1270,7 +1453,7 @@ Is the headline compelling for this specific audience? Does it speak to what the
         style={{ width: "100%", padding: "11px", background: "#111", border: "0.5px solid #333", borderRadius: 8, color: "#fff", fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 10 }} />
       {!submitted && <button onClick={() => submit(false)} disabled={loading} style={{ width: "100%", padding: "10px", background: "#facc15", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Launch Campaign →</button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI grading your headline...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1290,13 +1473,24 @@ function BrandRefreshActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !color || !vibe || !tagline.trim()) {
-      setResult({ good: false, lesson: "A rebrand with no direction is just noise.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "Rebrand incomplete — you need a color, vibe, and tagline.", lesson: "A rebrand with no direction is just noise.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const wc = tagline.trim().split(" ").filter(Boolean).length;
     const good = wc >= 2 && wc <= 6;
-    setResult({ good, lesson: good ? "Clean rebrand. Best taglines are 2-5 words and immediately communicate core value." : "Tagline too long or too short. Under 6 words is the gold standard." , statChange: good ? "+300 users · +15% morale · -$1,000" : "+100 users · -$1,000" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `"${tagline}" is ${wc} words — clean, memorable, and within the ideal range.`
+        : wc > 6
+        ? `"${tagline}" is ${wc} words — too long to stick. Under 6 words is the gold standard.`
+        : `"${tagline}" is only ${wc} word${wc > 1 ? "s" : ""} — too brief to communicate anything.`,
+      lesson: good
+        ? "Best taglines are 2-5 words and immediately communicate core value."
+        : "Tagline too long or too short. Under 6 words is the gold standard.",
+      statChange: good ? "+300 users · +15% morale · -$1,000" : "+100 users · -$1,000",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { users: 300, morale: 15, money: -1000 } : { users: 100, money: -1000 }), 3500);
   }
 
@@ -1330,7 +1524,7 @@ function BrandRefreshActivity({ onComplete, difficulty }) {
         </div>
       )}
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: color || "#333", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Launch Rebrand →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1351,15 +1545,24 @@ function FakeViralityActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !angle || !platform) {
-      setResult({ good: false, lesson: "Even fake virality needs a plan.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't pick an angle or platform before time ran out.", lesson: "Even fake virality needs a plan.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const isChaos = profile.type === "chaos";
     const isRat = scenario?.id === "rat_app" && angle.includes("Rat");
     const baseChance = isChaos ? 0.65 : 0.40;
     const works = isRat ? true : Math.random() < (baseChance + cringe * 0.05);
-    setResult({ good: works, lesson: works ? `It worked${isRat ? " — rats ARE the content!" : ""}. Manufactured moments can go viral but they're unsustainable. Build real traction too.` : "Exposed. Audiences smell fake. Authenticity beats manufactured virality 9/10.", statChange: works ? "+1,000 users · +10% morale" : "-200 users · -15% morale" });
-    sounds[works ? "success" : "fail"]();
+    setResult({
+      good: works,
+      reason: works
+        ? isRat ? "Rats ARE the content — you played it perfectly." : `The ${angle.toLowerCase()} on ${platform} caught fire. Timing and platform matched.`
+        : `The stunt landed flat on ${platform}. The audience saw through it.`,
+      lesson: works
+        ? "Manufactured moments can go viral but they're unsustainable. Build real traction too."
+        : "Audiences smell fake. Authenticity beats manufactured virality 9/10.",
+      statChange: works ? "+1,000 users · +10% morale" : "-200 users · -15% morale",
+    });
+    sounds[works ? "success" : "fail"]?.();
     setTimeout(() => onComplete(works ? { users: 1000, morale: 10 } : { users: -200, morale: -15 }), 3500);
   }
 
@@ -1389,7 +1592,7 @@ function FakeViralityActivity({ onComplete, scenario, difficulty }) {
         <input type="range" min={1} max={5} step={1} value={cringe} onChange={e => !submitted && setCringe(Number(e.target.value))} style={{ width: "100%" }} />
       </div>
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#facc15", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Launch Stunt →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1412,12 +1615,21 @@ function PlantBugActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut) {
-      setResult({ good: false, lesson: "Too slow. Planting a bug requires speed and precision.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "Too slow — the window to plant closed.", lesson: "Planting a bug requires speed and precision.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const good = idx === targetIdx;
-    setResult({ good, lesson: good ? "Perfect target. High-impact dependency files cause maximum disruption." : "Wrong file. The bug bounced back. Target user-facing critical paths.", statChange: good ? "+300 users" : "-100 users · -5% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `${fileSet[targetIdx]} is a high-impact dependency — maximum disruption.`
+        : `${fileSet[idx]} is the wrong target. ${fileSet[targetIdx]} would have caused more damage.`,
+      lesson: good
+        ? "Perfect target. High-impact dependency files cause maximum disruption."
+        : "Wrong file. Target user-facing critical paths.",
+      statChange: good ? "+300 users" : "-100 users · -5% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { users: 300 } : { users: -100, morale: -5 }), 3500);
   }
 
@@ -1437,7 +1649,7 @@ function PlantBugActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1454,11 +1666,18 @@ function AutomateActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !opt) {
-      setResult({ good: false, lesson: "Failing to automate wastes founder time.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't pick a process to automate.", lesson: "Failing to automate wastes founder time.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: opt.good, lesson: opt.lesson, statChange: opt.good ? "+$-2,000 · +10% morale (passive gains unlocked)" : "-$2,000 · -10% morale · -100 users" });
-    sounds[opt.good ? "success" : "fail"]();
+    setResult({
+      good: opt.good,
+      reason: opt.good
+        ? `${opt.label.replace(/^[^\s]+\s/, "")} is mechanical and repeatable — ideal automation candidate.`
+        : `${opt.risk} — automating this too early creates problems you can't easily fix.`,
+      lesson: opt.lesson,
+      statChange: opt.good ? "+$-2,000 · +10% morale (passive gains unlocked)" : "-$2,000 · -10% morale · -100 users",
+    });
+    sounds[opt.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(opt.good ? { money: -2000, morale: 10 } : { money: -2000, morale: -10, users: -100 }), 3500);
   }
 
@@ -1478,7 +1697,7 @@ function AutomateActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1502,12 +1721,21 @@ function SystemsAuditActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !pick) {
-      setResult({ good: false, lesson: "Failing to use your one audit wastes your most powerful tool.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You ran out of time without making an accusation.", lesson: "Failing to use your one audit wastes your most powerful tool.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const good = pick === guilty;
-    setResult({ good, lesson: good ? `Correct! The ${guilty} was the Saboteur. Audit spent — use it wisely next time.` : `Wrong. Actual Saboteur was the ${guilty}. The clues pointed there but you missed them.`, statChange: good ? "+20% morale" : "-10% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `Correct — all three clues pointed to the ${guilty}. Good pattern recognition.`
+        : `Wrong. The ${guilty} was responsible. Re-read the clues — they all pointed there.`,
+      lesson: good
+        ? `The ${guilty} was the Saboteur. Audit spent — use it wisely next time.`
+        : `Actual Saboteur was the ${guilty}. The clues pointed there but you missed them.`,
+      statChange: good ? "+20% morale" : "-10% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { morale: 20 } : { morale: -10 }), 3500);
   }
 
@@ -1530,7 +1758,7 @@ function SystemsAuditActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1547,11 +1775,20 @@ function HireNPCActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !profile) {
-      setResult({ good: false, lesson: "Indecision is a decision. Failing to hire when you need to costs growth.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't make a hire decision in time.", lesson: "Indecision is a decision. Failing to hire when you need to costs growth.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: profile.best, lesson: profile.best ? `Great hire. ${profile.name} is the best fit for your stage. Hire for current needs, not prestige.` : `Wrong hire. Not the right fit right now. Always hire for your current stage.`, statChange: profile.best ? `+15% morale · +100 users · -$${profile.salary.toLocaleString()}/mo` : `-5% morale · -$${profile.salary.toLocaleString()}/mo` });
-    sounds[profile.best ? "success" : "fail"]();
+    setResult({
+      good: profile.best,
+      reason: profile.best
+        ? `${profile.name} is the right fit — skills match your current stage and their weakness (${profile.weakness.toLowerCase()}) isn't a blocker right now.`
+        : `${profile.name} is wrong for your stage. Their weakness — ${profile.weakness.toLowerCase()} — is a real problem right now.`,
+      lesson: profile.best
+        ? `Great hire. ${profile.name} is the best fit for your stage. Hire for current needs, not prestige.`
+        : `Wrong hire. Not the right fit right now. Always hire for your current stage.`,
+      statChange: profile.best ? `+15% morale · +100 users · -$${profile.salary.toLocaleString()}/mo` : `-5% morale · -$${profile.salary.toLocaleString()}/mo`,
+    });
+    sounds[profile.best ? "success" : "fail"]?.();
     setTimeout(() => onComplete(profile.best ? { money: -profile.salary, morale: 15, users: 100 } : { money: -profile.salary, morale: -5 }), 3500);
   }
 
@@ -1575,7 +1812,7 @@ function HireNPCActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1598,8 +1835,21 @@ function ColdCallActivity({ onComplete, difficulty }) {
     const good = angle === prospect.good_angle;
     const badAngle = prospect.bad_angles?.includes(angle);
     const statChange = good ? "+$3,000 · +50 users" : badAngle ? "-5% morale · -$500 (angry review)" : "+$500";
-    setResult({ good, lesson: good ? `Perfect read. ${prospect.name} needed "${angle}" — nailed it. Reading prospect mood is core sales.` : badAngle ? `Bad angle. ${prospect.name} was ${prospect.mood} — "${angle}" made it worse.` : `Decent but not optimal. ${prospect.name} wanted "${prospect.good_angle}".`, statChange });
-    sounds[good ? "cash" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `Perfect read on ${prospect.name} — "${angle}" is exactly what a ${prospect.mood} ${prospect.company} needs to hear.`
+        : badAngle
+        ? `"${angle}" is on ${prospect.name}'s dealbreaker list. They're ${prospect.mood} and that angle made it worse.`
+        : `"${angle}" is okay but ${prospect.name} wanted to hear "${prospect.good_angle}" — you left money on the table.`,
+      lesson: good
+        ? `Perfect read. ${prospect.name} needed "${angle}" — nailed it. Reading prospect mood is core sales.`
+        : badAngle
+        ? `Bad angle. ${prospect.name} was ${prospect.mood} — "${angle}" made it worse.`
+        : `Decent but not optimal. ${prospect.name} wanted "${prospect.good_angle}".`,
+      statChange,
+    });
+    sounds[good ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(good ? { money: 3000, users: 50 } : badAngle ? { morale: -5, money: -500 } : { money: 500 }), 3500);
   }
 
@@ -1639,7 +1889,7 @@ function ColdCallActivity({ onComplete, difficulty }) {
           </div>
         </>
       )}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1659,12 +1909,25 @@ function FlashSaleActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !tone) {
-      setResult({ good: false, lesson: "A flash sale with no strategy is just giving money away.", statChange: "-$500" });
+      setResult({ good: false, reason: "No tone selected — campaign launched with no strategy.", lesson: "A flash sale with no strategy is just giving money away.", statChange: "-$500" });
       setTimeout(() => onComplete({ money: -500 }), 3500); return;
     }
     const good = discount <= 35 && duration <= 3;
-    setResult({ good, lesson: good ? `Smart sale. ${discount}% for ${duration} day(s) converts without training users to wait for discounts.` : discount > 50 ? "Too deep. Users will wait for the next sale instead of paying full price." : "Too long. Flash sales work because of urgency. A week-long sale is just a regular sale.", statChange: good ? `+$${revenueSpike} · -50 users` : `+$${Math.round(revenueSpike*0.4)} · -200 users` });
-    sounds[good ? "cash" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `${discount}% for ${duration} day${duration > 1 ? "s" : ""} — deep enough to convert, short enough to feel urgent.`
+        : discount > 50
+        ? `${discount}% is too deep. Users will now wait for the next sale instead of paying full price.`
+        : `${duration} days is too long. A week-long sale has no urgency — it's just a regular sale.`,
+      lesson: good
+        ? `Smart sale. Converts without training users to wait for discounts.`
+        : discount > 50
+        ? "Too deep. Users will wait for the next sale instead of paying full price."
+        : "Too long. Flash sales work because of urgency. A week-long sale is just a regular sale.",
+      statChange: good ? `+$${revenueSpike} · -50 users` : `+$${Math.round(revenueSpike*0.4)} · -200 users`,
+    });
+    sounds[good ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(good ? { money: revenueSpike, users: -50 } : { money: Math.round(revenueSpike*0.4), users: -200 }), 3500);
   }
 
@@ -1698,7 +1961,7 @@ function FlashSaleActivity({ onComplete, difficulty }) {
         <p style={{ fontSize: 12, fontWeight: 700, color: "#4ade80" }}>+${revenueSpike.toLocaleString()}</p>
       </div>
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#fb923c", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Launch Sale →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1735,22 +1998,22 @@ function HostAMAActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || chosen === null || !answer.trim()) {
-      setResult({ good: false, lesson: "Not answering destroys trust. Pick the hard ones.", statChange: "-10% morale" });
+      setResult({ good: false, reason: "You didn't answer a question before time ran out.", lesson: "Not answering destroys trust. Pick the hard ones.", statChange: "-10% morale" });
       setTimeout(() => onComplete({ morale: -10 }), 3500); return;
     }
     setLoading(true);
     const q = qSet[chosen];
     const prompt = `Grade this AMA answer for a ${profile.name} startup CEO.
-Question: "${q.question || q.q}"
+Question: "${q.q}"
 Answer: "${answer}"
 Scenario type: ${profile.type}
 Hint for good answer: ${q.hint}
 
-Is the answer honest? Specific? Appropriately long (15-60 words ideal)? Does it build trust? Does it match the scenario type? A chaotic startup can be funny. A medical startup needs to be serious. Grade harshly on authenticity.`;
+Is the answer honest? Specific? Appropriately long (15-60 words ideal)? Does it build trust? Does it match the scenario type?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good ? { users: 200, morale: 15, money: -500 } : { morale: -10, money: -500 }), 3500);
   }
 
@@ -1780,7 +2043,7 @@ Is the answer honest? Specific? Appropriately long (15-60 words ideal)? Does it 
       )}
       {!submitted && <button onClick={() => submit(false)} disabled={loading} style={{ width: "100%", padding: "10px", background: "#2dd4bf", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Answer Publicly →</button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI reviewing your answer...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1810,7 +2073,7 @@ function TownHallActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !motion.trim()) {
-      setResult({ good: false, lesson: "A Town Hall with no counter-motion is just complaining. Always come prepared with a specific alternative.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No counter-motion submitted before time ran out.", lesson: "A Town Hall with no counter-motion is just complaining. Always come prepared with a specific alternative.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     setLoading(true);
@@ -1819,7 +2082,7 @@ CEO's motion: "${ceoMotion}"
 Counter-motion proposed: "${motion}"
 Company context: ${profile.name} (${profile.type})
 
-Does the counter-motion make logical business sense as an alternative? Is it specific enough to be actionable? Does it address the underlying concern the CEO has while offering a better path? Is it well-reasoned? Grade on quality of business thinking, not writing style.`;
+Does the counter-motion make logical business sense as an alternative? Is it specific enough to be actionable? Does it address the CEO's underlying concern while offering a better path?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
 
@@ -1832,8 +2095,15 @@ Does the counter-motion make logical business sense as an alternative? Is it spe
       if (y + n >= 5) {
         clearInterval(interval);
         const passed = y > n;
-        setResult({ good: passed, lesson: passed ? grade.lesson || "Motion passed. A well-reasoned counter carries the room." : grade.lesson || "Motion failed. The team wasn't convinced by your alternative.", statChange: passed ? "+20% morale" : "-5% morale" });
-        sounds[passed ? "success" : "fail"]();
+        setResult({
+          good: passed,
+          reason: grade.reason || (passed ? "Your counter-motion carried the room." : "The team wasn't convinced."),
+          lesson: passed
+            ? grade.lesson || "A well-reasoned counter carries the room."
+            : grade.lesson || "The team wasn't convinced by your alternative.",
+          statChange: passed ? "+20% morale" : "-5% morale",
+        });
+        sounds[passed ? "success" : "fail"]?.();
         setTimeout(() => onComplete(passed ? { morale: 20 } : { morale: -5 }), 3500);
       }
     }, 500);
@@ -1845,13 +2115,11 @@ Does the counter-motion make logical business sense as an alternative? Is it spe
         <p style={{ fontSize: 12, color: "#888" }}>🗳️ Town Hall (Community)</p>
         {!voting && <TimerRing seconds={timeLeft} total={timer} color="#2dd4bf" />}
       </div>
-
       <div style={{ background: "#1a0808", border: "1px solid #ff444430", borderRadius: 10, padding: "12px", marginBottom: 12 }}>
         <p style={{ fontSize: 10, color: "#ff4444", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>⚠️ CEO's motion</p>
         <p style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{ceoMotion}</p>
         <p style={{ fontSize: 10, color: "#555", marginTop: 4 }}>You disagree. Write a counter-motion to overrule them.</p>
       </div>
-
       {!voting ? (
         <>
           {!loading && (
@@ -1878,7 +2146,7 @@ Does the counter-motion make logical business sense as an alternative? Is it spe
           {!result && <p style={{ fontSize: 11, color: "#555" }}>Votes coming in...</p>}
         </div>
       )}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1904,7 +2172,7 @@ function PersonalizedOutreachActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !message.trim()) {
-      setResult({ good: false, lesson: "Even one sentence beats silence in personalized outreach.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No message written — you missed the outreach window.", lesson: "Even one sentence beats silence in personalized outreach.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     setLoading(true);
@@ -1913,11 +2181,11 @@ Recipient: ${user.name} — ${user.persona}
 They want: ${user.want}
 Message written: "${message}"
 
-Does the message use their name? Does it address their specific situation? Is it the right length (15-80 words)? Does it feel personal or like a template? Does it speak to what they actually want? Scenario type matters: ${profile.tone}`;
+Does the message use their name? Does it address their specific situation? Is it the right length (15-80 words)? Does it feel personal or like a template? Does it speak to what they actually want?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good ? { users: 100, morale: 10 } : { users: 10 }), 3500);
   }
 
@@ -1938,7 +2206,7 @@ Does the message use their name? Does it address their specific situation? Is it
       <p style={{ fontSize: 9, color: "#444", marginBottom: 8 }}>{message.trim().split(" ").filter(Boolean).length} words</p>
       {!submitted && <button onClick={() => submit(false)} disabled={loading} style={{ width: "100%", padding: "10px", background: "#2dd4bf", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Send Message →</button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI reviewing your message...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -1957,13 +2225,13 @@ function AllHandsActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !speech.trim()) {
-      setResult({ good: false, lesson: "A CEO who skips the all-hands loses trust. Even a short authentic message beats silence.", statChange: "-10% morale" });
+      setResult({ good: false, reason: "No speech delivered — the team sat in silence.", lesson: "A CEO who skips the all-hands loses trust. Even a short authentic message beats silence.", statChange: "-10% morale" });
       setTimeout(() => onComplete({ morale: -10 }), 3500); return;
     }
-    const hasBuzzword = BAD_PHRASES.some(b => speech.toLowerCase().includes(b));
-    if (hasBuzzword) {
-      setResult({ good: false, lesson: "Buzzword detected. Your team rolls their eyes at corporate speak. Be specific and human.", statChange: "-5% morale" });
-      sounds.fail();
+    const foundBuzzword = BAD_PHRASES.find(b => speech.toLowerCase().includes(b));
+    if (foundBuzzword) {
+      setResult({ good: false, reason: `"${foundBuzzword}" — your team groaned. Corporate buzzwords kill authenticity instantly.`, lesson: "Be specific and human. Buzzword bingo is the fastest way to lose the room.", statChange: "-5% morale" });
+      sounds.fail?.();
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     setLoading(true);
@@ -1971,11 +2239,11 @@ function AllHandsActivity({ onComplete, scenario, difficulty }) {
 Speech: "${speech}"
 Context: ${profile.tone}
 
-Is it authentic? Specific? Appropriately concise (5-30 words ideal)? Does it match the tone of this type of company? Does it actually motivate? No buzzwords please. A chaos startup can be funny. A medical startup should be serious and grounding.`;
+Is it authentic? Specific? Appropriately concise (5-30 words ideal)? Does it match the tone of this type of company? Does it actually motivate?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good ? { morale: 15 } : { morale: -5 }), 3500);
   }
 
@@ -1994,7 +2262,7 @@ Is it authentic? Specific? Appropriately concise (5-30 words ideal)? Does it mat
       <p style={{ fontSize: 9, color: "#444", marginBottom: 8 }}>{speech.trim().split(" ").filter(Boolean).length} words</p>
       {!submitted && <button onClick={() => submit(false)} disabled={loading} style={{ width: "100%", padding: "10px", background: "#60a5fa", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Address the Team →</button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI grading your speech...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2011,12 +2279,23 @@ function FireActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !emp) {
-      setResult({ good: false, lesson: "Failing to make hard calls is still a call — you kept everyone and burned cash.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't make a decision in time — everyone stays and costs keep burning.", lesson: "Failing to make hard calls is still a call — you kept everyone and burned cash.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const safe = emp.cost_to_fire === "safe to fire";
-    setResult({ good: safe, lesson: safe ? `Right call. ${emp.name} was the weakest fit. Letting go of the right person keeps the team strong.` : `Wrong call. ${emp.name}'s hidden value: ${emp.hidden}. Always dig deeper before firing.`, statChange: safe ? `+$${emp.salary.toLocaleString()}/mo saved · +5% morale` : `+$${emp.salary.toLocaleString()}/mo saved · -20% morale · -200 users` });
-    sounds[safe ? "success" : "fail"]();
+    setResult({
+      good: safe,
+      reason: safe
+        ? `${emp.name} was the right cut — ${emp.cost_to_fire}. No hidden value lost.`
+        : `Wrong call. ${emp.name}'s hidden value: ${emp.hidden}. You didn't dig deep enough before firing.`,
+      lesson: safe
+        ? `Right call. ${emp.name} was the weakest fit. Letting go of the right person keeps the team strong.`
+        : `Wrong call. ${emp.name}'s hidden value: ${emp.hidden}. Always dig deeper before firing.`,
+      statChange: safe
+        ? `+$${emp.salary.toLocaleString()}/mo saved · +5% morale`
+        : `+$${emp.salary.toLocaleString()}/mo saved · -20% morale · -200 users`,
+    });
+    sounds[safe ? "success" : "fail"]?.();
     setTimeout(() => onComplete(safe ? { money: emp.salary, morale: 5 } : { money: emp.salary, morale: -20, users: -200 }), 3500);
   }
 
@@ -2039,7 +2318,7 @@ function FireActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2058,7 +2337,7 @@ function PivotActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !direction.trim() || !market) {
-      setResult({ good: false, lesson: "A pivot with no direction isn't a pivot — it's panic.", statChange: "-10% morale" });
+      setResult({ good: false, reason: "No pivot direction or market selected in time.", lesson: "A pivot with no direction isn't a pivot — it's panic.", statChange: "-10% morale" });
       setTimeout(() => onComplete({ morale: -10 }), 3500); return;
     }
     setLoading(true);
@@ -2067,11 +2346,11 @@ Current business: ${profile.name}
 New direction: "${direction}"
 New market: ${market}
 
-Does the pivot make logical business sense given what they already have? Are they keeping their strengths? Does the new market make sense? Is the explanation clear and specific (8-40 words ideal)? A pivot from Rat App to anything is funny — lean into it. A medical pivot needs to be grounded.`;
+Does the pivot make logical business sense given what they already have? Are they keeping their strengths? Does the new market make sense? Is the explanation clear and specific (8-40 words ideal)?`;
     const grade = await gradeWithAI(prompt);
     setLoading(false);
-    setResult({ good: grade.good, lesson: grade.lesson, statChange: grade.statChange });
-    sounds[grade.good ? "success" : "fail"]();
+    setResult({ good: grade.good, reason: grade.reason, lesson: grade.lesson, statChange: grade.statChange });
+    sounds[grade.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(grade.good ? { morale: 10, users: 300 } : { morale: -10 }), 3500);
   }
 
@@ -2095,7 +2374,7 @@ Does the pivot make logical business sense given what they already have? Are the
       </div>
       {!submitted && <button onClick={() => submit(false)} disabled={loading} style={{ width: "100%", padding: "10px", background: "#60a5fa", color: "#000", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Commit to Pivot →</button>}
       {loading && <p style={{ color: "#888", fontSize: 12, textAlign: "center", marginTop: 8 }}>AI evaluating your pivot...</p>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2114,7 +2393,7 @@ function EmbezzleActivity({ onComplete, difficulty }) {
   function click(i, t) {
     if (submitted || clicks.includes(i)) return;
     if (t.suspicious) {
-      sounds.action();
+      sounds.action?.();
       const newClicks = [...clicks, i];
       setClicks(newClicks);
       if (newClicks.length >= 2) submit(false, true);
@@ -2131,15 +2410,15 @@ function EmbezzleActivity({ onComplete, difficulty }) {
     submittedRef.current = true;
     setSubmitted(true);
     if (caught) {
-      setResult({ good: false, lesson: "Fraud alert triggered. CFO saw everything. Real embezzlement is detected through behavioral pattern analysis.", statChange: "-15% morale" });
+      setResult({ good: false, reason: "You clicked too many legitimate transactions — fraud alert triggered.", lesson: "Real embezzlement is detected through behavioral pattern analysis.", statChange: "-15% morale" });
       setTimeout(() => onComplete({ morale: -15 }), 3500); return;
     }
     if (success) {
-      setResult({ good: true, lesson: "Clean drain. Real embezzlement detection relies on consistent small amounts being harder to catch.", statChange: "+$500 (stolen)" });
-      sounds.action();
+      setResult({ good: true, reason: "You targeted the right transactions without triggering the alert.", lesson: "Consistent small amounts are harder to detect than large one-off transfers.", statChange: "+$500 (stolen)" });
+      sounds.action?.();
       setTimeout(() => onComplete({ money: 500 }), 3500); return;
     }
-    setResult({ good: false, lesson: "Too slow or not enough redirected. The window closed.", statChange: "-5% morale" });
+    setResult({ good: false, reason: "Too slow — the window closed before you redirected enough.", lesson: "The window closed.", statChange: "-5% morale" });
     setTimeout(() => onComplete({ morale: -5 }), 3500);
   }
 
@@ -2170,7 +2449,7 @@ function EmbezzleActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2186,15 +2465,28 @@ function LeakToPressActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !tip.trim()) {
-      setResult({ good: false, lesson: "A leak with no substance does nothing.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No tip submitted before time ran out.", lesson: "A leak with no substance does nothing.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const wc = tip.trim().split(" ").filter(Boolean).length;
     const tooSpecific = wc > 20;
     const tooVague = wc < 5;
     const good = !tooSpecific && !tooVague;
-    setResult({ good, lesson: good ? "Perfect leak. Specific enough to be credible, vague enough to hide your identity." : tooSpecific ? "Too specific — the team can trace this back to you. Only you had that detail." : "Too vague. The journalist won't run with this.", statChange: good ? "-10% team morale (mission success)" : "-3% morale" });
-    sounds[good ? "success" : "fail"]();
+    setResult({
+      good,
+      reason: good
+        ? `${wc} words — specific enough to be credible, vague enough to protect your identity.`
+        : tooSpecific
+        ? `${wc} words is too specific — the team can trace this back to you. You're the only one with that detail.`
+        : `${wc} words is too vague — the journalist won't run with it.`,
+      lesson: good
+        ? "Perfect leak. Specific enough to be credible, vague enough to hide your identity."
+        : tooSpecific
+        ? "Too specific — the team can trace this back to you. Only you had that detail."
+        : "Too vague. The journalist won't run with this.",
+      statChange: good ? "-10% team morale (mission success)" : "-3% morale",
+    });
+    sounds[good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(good ? { morale: -10 } : { morale: -3 }), 3500);
   }
 
@@ -2214,7 +2506,7 @@ function LeakToPressActivity({ onComplete, difficulty }) {
         {tip.trim().split(" ").filter(Boolean).length} words {tip.trim().split(" ").filter(Boolean).length > 20 ? "— too specific!" : ""}
       </p>
       {!submitted && <button onClick={() => submit(false)} style={{ width: "100%", padding: "10px", background: "#ff4444", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Send Anonymously →</button>}
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2254,11 +2546,20 @@ function ProductUpdateActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !feature) {
-      setResult({ good: false, lesson: "Shipping nothing is falling behind. Inaction is the most expensive choice.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No feature shipped — you shipped nothing and fell behind.", lesson: "Shipping nothing is falling behind. Inaction is the most expensive choice.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: feature.good, lesson: feature.good ? `Good pick for ${profile.name}. ${feature.label} has clear value and manageable scope. Ship what moves your core metric.` : `Wrong for your stage. ${feature.tradeoff}. Always ask: does this move our growth constraint right now?`, statChange: feature.good ? "+100 users · +8% morale" : "-5% morale · -$1,000" });
-    sounds[feature.good ? "success" : "fail"]();
+    setResult({
+      good: feature.good,
+      reason: feature.good
+        ? `${feature.label} is the right call — clear value, manageable scope, moves your core metric.`
+        : `${feature.label} is wrong for your stage: ${feature.tradeoff}.`,
+      lesson: feature.good
+        ? `Good pick for ${profile.name}. Ship what moves your core metric.`
+        : `Wrong for your stage. Always ask: does this move our growth constraint right now?`,
+      statChange: feature.good ? "+100 users · +8% morale" : "-5% morale · -$1,000",
+    });
+    sounds[feature.good ? "success" : "fail"]?.();
     setTimeout(() => onComplete(feature.good ? { users: 100, morale: 8 } : { morale: -5, money: -1000 }), 3500);
   }
 
@@ -2278,13 +2579,13 @@ function ProductUpdateActivity({ onComplete, scenario, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
+
 function CloseDealtActivity({ onComplete, scenario, difficulty }) {
   const timer = getTimer(20, difficulty);
-  const profile = getScenarioProfile(scenario?.id);
   const DEALS = [
     { company: "Mid-size retailer", budget: "$5k/year", objection: "We already have a solution", size: "small" },
     { company: "Regional hospital chain", budget: "$40k/year", objection: "We need security compliance first", size: "large" },
@@ -2311,12 +2612,21 @@ function CloseDealtActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !response) {
-      setResult({ good: false, lesson: "Silence kills deals. Always have a response to objections.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "You didn't respond to the objection in time — the prospect moved on.", lesson: "Silence kills deals. Always have a response to objections.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const revenue = deal.size === "enterprise" ? 8000 : deal.size === "large" ? 5000 : deal.size === "medium" ? 3000 : 1500;
-    setResult({ good: response.good, lesson: response.good ? `Deal closed with ${deal.company}! Great objection handling. Addressing concerns directly builds trust and closes deals.` : `Lost the deal. "${response.text}" reads as dismissive. Objection handling requires empathy first, solution second.`, statChange: response.good ? `+$${revenue.toLocaleString()}` : "-5% morale" });
-    sounds[response.good ? "cash" : "fail"]();
+    setResult({
+      good: response.good,
+      reason: response.good
+        ? `"${response.text}" — addresses the objection directly without being pushy. That's what closes deals.`
+        : `"${response.text}" — reads as dismissive or desperate. That pushes buyers away.`,
+      lesson: response.good
+        ? `Deal closed with ${deal.company}! Objection handling requires empathy first, solution second.`
+        : `Lost the deal. Objection handling requires empathy first, solution second.`,
+      statChange: response.good ? `+$${revenue.toLocaleString()}` : "-5% morale",
+    });
+    sounds[response.good ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(response.good ? { money: revenue } : { morale: -5 }), 3500);
   }
 
@@ -2340,7 +2650,7 @@ function CloseDealtActivity({ onComplete, scenario, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2365,11 +2675,20 @@ function CostCuttingActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !cut) {
-      setResult({ good: false, lesson: "Failing to cut costs when needed burns runway. Every dollar saved is a dollar of runway extended.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No cut made — costs kept burning with no action.", lesson: "Failing to cut costs when needed burns runway.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: cut.good, lesson: cut.good ? `Smart cut. Saved $${cut.savings.toLocaleString()}/mo. ${cut.risk}. Ruthless cost discipline is what separates startups that survive from ones that don't.` : `Wrong cut. ${cut.risk}. Cutting costs that destroy morale or team capability costs more than you save.`, statChange: cut.good ? `+$${cut.savings.toLocaleString()}` : "-10% morale" });
-    sounds[cut.good ? "cash" : "fail"]();
+    setResult({
+      good: cut.good,
+      reason: cut.good
+        ? `"${cut.label}" — saves $${cut.savings.toLocaleString()}/mo with ${cut.risk.toLowerCase()}.`
+        : `"${cut.label}" — ${cut.risk.toLowerCase()}. The cost savings don't justify the damage.`,
+      lesson: cut.good
+        ? `Smart cut. Ruthless cost discipline separates startups that survive from ones that don't.`
+        : `Wrong cut. Cutting costs that destroy morale or team capability costs more than you save.`,
+      statChange: cut.good ? `+$${cut.savings.toLocaleString()}` : "-10% morale",
+    });
+    sounds[cut.good ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(cut.good ? { money: cut.savings } : { morale: -10 }), 3500);
   }
 
@@ -2392,7 +2711,7 @@ function CostCuttingActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2417,13 +2736,21 @@ function PaidCampaignActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !channel) {
-      setResult({ good: false, lesson: "No channel selected means wasted budget. Always match channel to audience.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No channel selected — budget spent with no campaign launched.", lesson: "No channel selected means wasted budget. Always match channel to audience.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    const isGoodFit = channel.fit.includes(profile.type) || channel.fit.includes("general");
+    const fits = channel.fit.split(",");
+    const isGoodFit = fits.includes(profile.type) || fits.includes("general");
     const users = isGoodFit ? Math.floor(300 + Math.random() * 400) : Math.floor(50 + Math.random() * 100);
-    setResult({ good: isGoodFit, lesson: channel.lesson, statChange: isGoodFit ? `+${users} users · -$${channel.cost.toLocaleString()}` : `-$${channel.cost.toLocaleString()} · +${users} users (poor fit)` });
-    sounds[isGoodFit ? "success" : "fail"]();
+    setResult({
+      good: isGoodFit,
+      reason: isGoodFit
+        ? `${channel.label} is a strong fit for ${profile.type} companies — audience intent matches.`
+        : `${channel.label} is a poor fit for ${profile.type}. Wrong audience for your product type.`,
+      lesson: channel.lesson,
+      statChange: isGoodFit ? `+${users} users · -$${channel.cost.toLocaleString()}` : `-$${channel.cost.toLocaleString()} · +${users} users (poor fit)`,
+    });
+    sounds[isGoodFit ? "success" : "fail"]?.();
     setTimeout(() => onComplete(isGoodFit ? { users, money: -channel.cost } : { users: Math.floor(users * 0.3), money: -channel.cost }), 3500);
   }
 
@@ -2448,7 +2775,7 @@ function PaidCampaignActivity({ onComplete, scenario, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2471,11 +2798,22 @@ function FreelanceGigActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !gig) {
-      setResult({ good: false, lesson: "No gig = no freelance revenue. Any revenue is better than none when you're bootstrapping.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No gig selected — you left revenue on the table.", lesson: "Any revenue is better than none when you're bootstrapping.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: gig.good, lesson: gig.good ? `Smart gig. $${gig.pay.toLocaleString()} for ${gig.time} work. Freelancing is a great way to extend runway without giving up equity.` : `Poor choice. ${gig.risk}. Take gigs that pay well relative to time and don't distract from your core product.`, statChange: gig.good ? `+$${gig.pay.toLocaleString()}` : gig.pay === 0 ? "-10% morale (no revenue)" : "-10% morale (too distracting)" });
-    sounds[gig.good ? "cash" : "fail"]();
+    setResult({
+      good: gig.good,
+      reason: gig.good
+        ? `${gig.client} — $${gig.pay.toLocaleString()} for ${gig.time} work. Good time-to-revenue ratio.`
+        : gig.pay === 0
+        ? `Pro bono work pays nothing. You need revenue, not goodwill right now.`
+        : `${gig.client} — ${gig.time} is too long. A 6-month contract kills your startup focus.`,
+      lesson: gig.good
+        ? `Freelancing is a great way to extend runway without giving up equity.`
+        : `Take gigs that pay well relative to time and don't distract from your core product.`,
+      statChange: gig.good ? `+$${gig.pay.toLocaleString()}` : gig.pay === 0 ? "-10% morale (no revenue)" : "-10% morale (too distracting)",
+    });
+    sounds[gig.good ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(gig.good ? { money: gig.pay } : { morale: -10 }), 3500);
   }
 
@@ -2498,7 +2836,7 @@ function FreelanceGigActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2521,11 +2859,18 @@ function OptimizeRevenueActivity({ onComplete, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !opt) {
-      setResult({ good: false, lesson: "Revenue optimization requires action. Waiting costs you money every month.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No optimization selected — opportunity missed.", lesson: "Revenue optimization requires action. Waiting costs you money every month.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
-    setResult({ good: opt.good, lesson: opt.lesson, statChange: opt.good ? "+$2,500 · +5% morale" : "-10% morale · legal risk" });
-    sounds[opt.good ? "cash" : "fail"]();
+    setResult({
+      good: opt.good,
+      reason: opt.good
+        ? `"${opt.label}" — ${opt.impact}. Clean win with no downside.`
+        : `"${opt.label}" — ${opt.impact}. The risk far outweighs the short-term gain.`,
+      lesson: opt.lesson,
+      statChange: opt.good ? "+$2,500 · +5% morale" : "-10% morale · legal risk",
+    });
+    sounds[opt.good ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(opt.good ? { money: 2500, morale: 5 } : { morale: -10 }), 3500);
   }
 
@@ -2545,7 +2890,7 @@ function OptimizeRevenueActivity({ onComplete, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
@@ -2569,13 +2914,22 @@ function SponsorshipDealActivity({ onComplete, scenario, difficulty }) {
     if (submitted) return;
     setSubmitted(true);
     if (timedOut || !sponsor) {
-      setResult({ good: false, lesson: "No sponsorship = no community revenue. Pick the right channel for your audience.", statChange: "-5% morale" });
+      setResult({ good: false, reason: "No sponsor selected — opportunity missed.", lesson: "Pick the right channel for your audience.", statChange: "-5% morale" });
       setTimeout(() => onComplete({ morale: -5 }), 3500); return;
     }
     const fits = sponsor.fit.split(",");
     const isGoodFit = fits.includes(profile.type) || fits.includes("general");
-    setResult({ good: isGoodFit, lesson: sponsor.lesson, statChange: isGoodFit ? `+$${sponsor.pay.toLocaleString()} · +${sponsor.users} users` : `+$${Math.round(sponsor.pay * 0.3).toLocaleString()} · +${Math.round(sponsor.users * 0.2)} users (poor fit)` });
-    sounds[isGoodFit ? "cash" : "fail"]();
+    setResult({
+      good: isGoodFit,
+      reason: isGoodFit
+        ? `${sponsor.name} is a strong fit for ${profile.type} — audience alignment is high.`
+        : `${sponsor.name} reaches the wrong audience for ${profile.type}. Poor channel fit.`,
+      lesson: sponsor.lesson,
+      statChange: isGoodFit
+        ? `+$${sponsor.pay.toLocaleString()} · +${sponsor.users} users`
+        : `+$${Math.round(sponsor.pay * 0.3).toLocaleString()} · +${Math.round(sponsor.users * 0.2)} users (poor fit)`,
+    });
+    sounds[isGoodFit ? "cash" : "fail"]?.();
     setTimeout(() => onComplete(isGoodFit ? { money: sponsor.pay, users: sponsor.users } : { money: Math.round(sponsor.pay * 0.3), users: Math.round(sponsor.users * 0.2) }), 3500);
   }
 
@@ -2600,11 +2954,12 @@ function SponsorshipDealActivity({ onComplete, scenario, difficulty }) {
           </button>
         ))}
       </div>
-      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} />}
+      {result && <Lesson text={result.lesson} isGood={result.good} statChange={result.statChange} reason={result.reason} />}
     </div>
   );
 }
-// ─── ACTIVITY MAP ─────────────────────────────────────────────────────────
+
+// ─── ACTIVITY MAP ─────────────────────────────────────────────────────────────
 export const ACTIVITY_MAP = {
   "Cold Email": ColdEmailActivity,
   "Blog Post": BlogPostActivity,

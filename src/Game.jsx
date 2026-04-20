@@ -966,30 +966,88 @@ export default function Game({ gameConfig, playerData, onGameOver, onExitRequest
       const res = await fetch("/.netlify/functions/claude-proxy", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
-          system:`You are ${inv.name}, ${inv.bg}. Judging a startup pitch in Startup Survival. Startup: ${gameConfig.scenario?.name}. Stats: $${s.money.toLocaleString()} cash, ${s.users} users, ${Math.round(s.morale)}% morale. You care about ${inv.cares}. Dealbreaker: ${inv.dealbreaker}. 3-4 sentences. End with exactly one of: DEAL: $[amount]k for [equity]% | COUNTER: [offer] | PASS: [reason] | MAYBE: [condition]`,
+          system:`You are ${inv.name}, ${inv.bg}. You are judging a startup pitch in a game called Startup Survival.
+
+Context: Startup is "${gameConfig.scenario?.name}". Current stats: $${s.money.toLocaleString()} cash, ${s.users} users, ${Math.round(s.morale)}% morale.
+You care most about: ${inv.cares}.
+Your dealbreaker: ${inv.dealbreaker}.
+
+Rules:
+- Respond in 2-3 punchy sentences reacting to their pitch specifically.
+- Reference something concrete from their pitch text.
+- You MUST end your response with EXACTLY one of these verdicts on its own line:
+  DEAL: $[number]k for [number]%
+  COUNTER: [your counteroffer in one sentence]
+  PASS: [one-sentence reason]
+  MAYBE: [one condition they must meet]
+- Do not skip the verdict. Do not wrap it in a sentence. Put it on the last line alone.
+- Even a terrible pitch gets a verdict. If it's bad, use PASS.`,
           messages:[{ role:"user", content:pitchText }],
         }),
       });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error("Pitch proxy error:", res.status, errData);
+        if (!mountedRef.current) return;
+        setPitchResponse({ text:`${inv.name} had connection trouble. Try again. (${res.status})`, investor:inv.name });
+        if (mountedRef.current) setPitchLoading(false);
+        return;
+      }
+
       const data = await res.json();
-      const text = data.content?.[0]?.text || "The investor had to leave early.";
+
+      // Handle API-level errors (e.g. overloaded, auth failure)
+      if (data.error || !data.content?.[0]?.text) {
+        console.error("Anthropic API error in pitch:", data.error || "no content");
+        if (!mountedRef.current) return;
+        setPitchResponse({ text:`${inv.name} stepped out to take a call. The servers are busy — try again in a moment.`, investor:inv.name });
+        if (mountedRef.current) setPitchLoading(false);
+        return;
+      }
+
+      const text = data.content[0].text;
       const result = { text, investor:inv.name };
       if (!mountedRef.current) return;
       setPitchResponse(result);
       if (!isSolo) { await broadcastPitchResult(roomCode, result); await clearPitchStart(roomCode); await clearPitchSuggestions(roomCode); }
-      if (text.includes("DEAL:")) {
-        const mm = text.match(/\$(\d+)k/);
-        applyEffect({ money: mm?parseInt(mm[1])*1000:50000, morale:20 });
+
+      // Parse verdict — check last line first, then anywhere in text
+      const lines = text.trim().split("\n");
+      const lastLine = lines[lines.length - 1].trim();
+      const verdictLine = [lastLine, ...lines].find(l =>
+        /^(DEAL:|PASS:|COUNTER:|MAYBE:)/i.test(l.trim())
+      ) || text;
+
+      if (/DEAL:/i.test(verdictLine)) {
+        const mm = verdictLine.match(/\$(\d+)k/i);
+        applyEffect({ money: mm ? parseInt(mm[1]) * 1000 : 50000, morale:20 });
         setReputation(p=>({...p, investor:Math.min(100,p.investor+20)}));
         sounds.win?.(); haptic([300]);
         if (!isSolo) broadcastSystemMessage(roomCode, `🦈 ${inv.name} said DEAL! Funding secured!`, "success");
-      } else if (text.includes("PASS:")) {
-        applyEffect({ morale:-10 }); setReputation(p=>({...p, investor:Math.max(0,p.investor-5)})); sounds.fail?.();
+        addLog(`🦈 ${inv.name}: DEAL!`);
+      } else if (/PASS:/i.test(verdictLine)) {
+        applyEffect({ morale:-10 });
+        setReputation(p=>({...p, investor:Math.max(0,p.investor-5)}));
+        sounds.fail?.();
         if (!isSolo) broadcastSystemMessage(roomCode, `🦈 ${inv.name} passed. Back to work.`, "warning");
-      } else if (text.includes("COUNTER:")) { applyEffect({ morale:5 }); sounds.action?.(); }
-      else if (text.includes("MAYBE:"))    { applyEffect({ morale:10 }); sounds.action?.(); }
-      addLog(`🦈 ${inv.name}: ${text.includes("DEAL:")?"DEAL!":text.includes("PASS:")?"Passed":text.includes("COUNTER:")?"Counter":"Maybe"}`);
-    } catch {
-      if (mountedRef.current) setPitchResponse({ text:"Connection error — try again.", investor:"Unknown" });
+        addLog(`🦈 ${inv.name}: Passed`);
+      } else if (/COUNTER:/i.test(verdictLine)) {
+        applyEffect({ morale:5 }); sounds.action?.();
+        addLog(`🦈 ${inv.name}: Counter offer`);
+      } else if (/MAYBE:/i.test(verdictLine)) {
+        applyEffect({ morale:10 }); sounds.action?.();
+        addLog(`🦈 ${inv.name}: Maybe`);
+      } else {
+        // No verdict found — treat as pass with note
+        applyEffect({ morale:-5 });
+        sounds.fail?.();
+        addLog(`🦈 ${inv.name}: No verdict`);
+      }
+
+    } catch (err) {
+      console.error("submitPitch exception:", err);
+      if (mountedRef.current) setPitchResponse({ text:"Connection error — check your network and try again.", investor:inv.name });
     }
     if (mountedRef.current) setPitchLoading(false);
   }
