@@ -1109,6 +1109,8 @@ Rules:
     }
     endGame(reason);
   }
+
+  function endGame(reason) {
     if (!stateRef.current.gameActive) return;
     setGameActive(false);
     haptic([500]);
@@ -1682,7 +1684,7 @@ Rules:
       />
     </div>
   );
-
+}
 
 function ActionButton({ action, cooldowns, stacks, onPress, roleColor, locked }) {
   const cd = cooldowns[action.key] || 0;
